@@ -1,0 +1,29 @@
+version: '3.8'
+
+services:
+  backend:
+    build: ./backend
+    container_name: mopj-backend
+    restart: always
+    ports:
+      - "5000:5000"  # 이 줄이 필요합니다!
+    volumes:
+      - ./backend/models:/app/models
+      - ./backend/static:/app/static
+      - ./backend/uploads:/app/uploads
+      - ./logs:/app/logs
+
+  frontend:
+    build: ./mopj-dashboard
+    container_name: mopj-frontend
+    restart: always
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+
+volumes:
+  models:
+  static:
+  uploads:
+  logs:
