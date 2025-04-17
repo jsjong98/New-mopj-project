@@ -2,7 +2,7 @@
 import axios from 'axios';
 
 // 백엔드 URL 직접 지정
-const API_BASE_URL = 'http://localhost:5000';
+const API_BASE_URL = '/api';
 
 // API 클라이언트 생성
 const apiClient = axios.create({
@@ -20,7 +20,7 @@ export const uploadCSV = async (file) => {
   
   try {
     // 직접 백엔드 URL로 요청
-    const response = await fetch(`${API_BASE_URL}/api/upload`, {
+    const response = await fetch(`${API_BASE_URL}/upload`, {
       method: 'POST',
       body: formData,
       // CORS 설정
@@ -44,7 +44,7 @@ export const uploadCSV = async (file) => {
 // 사용 가능한 날짜 조회
 export const getAvailableDates = async (filepath) => {
   try {
-    const response = await fetch(`${API_BASE_URL}/api/data/dates?filepath=${encodeURIComponent(filepath)}`, {
+    const response = await fetch(`${API_BASE_URL}/data/dates?filepath=${encodeURIComponent(filepath)}`, {
       mode: 'cors',
       credentials: 'omit'
     });
@@ -69,7 +69,7 @@ export const startPrediction = async (filepath, date = null) => {
     const payload = { filepath };
     if (date) payload.date = date;
     
-    const response = await fetch(`${API_BASE_URL}/api/predict`, {
+    const response = await fetch(`${API_BASE_URL}/predict`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json'
@@ -93,7 +93,7 @@ export const startPrediction = async (filepath, date = null) => {
 // 예측 상태 확인
 export const getPredictionStatus = async () => {
   try {
-    const response = await fetch(`${API_BASE_URL}/api/predict/status`, {
+    const response = await fetch(`${API_BASE_URL}/predict/status`, {
       mode: 'cors',
       credentials: 'omit'
     });
@@ -112,7 +112,7 @@ export const getPredictionStatus = async () => {
 // 모든 예측 결과 조회
 export const getPredictionResults = async () => {
   try {
-    const response = await fetch(`${API_BASE_URL}/api/results`, {
+    const response = await fetch(`${API_BASE_URL}/results`, {
       mode: 'cors',
       credentials: 'omit'
     });
@@ -183,7 +183,7 @@ export const startAccumulatedPrediction = async (filepath, startDate, endDate) =
       end_date: endDate
     };
     
-    const response = await fetch(`${API_BASE_URL}/api/predict/accumulated`, {
+    const response = await fetch(`${API_BASE_URL}/predict/accumulated`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json'
@@ -207,7 +207,7 @@ export const startAccumulatedPrediction = async (filepath, startDate, endDate) =
 // 특정 날짜의 누적 예측 결과 조회
 export const getAccumulatedResultByDate = async (date) => {
   try {
-    const response = await fetch(`${API_BASE_URL}/api/results/accumulated/${date}`, {
+    const response = await fetch(`${API_BASE_URL}/results/accumulated/${date}`, {
       mode: 'cors',
       credentials: 'omit'
     });
@@ -226,7 +226,7 @@ export const getAccumulatedResultByDate = async (date) => {
 // 누적 예측 시각화 데이터 조회
 export const getAccumulatedVisualization = async () => {
   try {
-    const response = await fetch(`${API_BASE_URL}/api/results/accumulated/visualization`, {
+    const response = await fetch(`${API_BASE_URL}/results/accumulated/visualization`, {
       mode: 'cors',
       credentials: 'omit'
     });
@@ -245,7 +245,7 @@ export const getAccumulatedVisualization = async () => {
 // api.js - getAccumulatedResults 함수 디버깅 로그 추가
 export const getAccumulatedResults = async () => {
   try {
-    const response = await fetch(`${API_BASE_URL}/api/results/accumulated`, {
+    const response = await fetch(`${API_BASE_URL}/results/accumulated`, {
       mode: 'cors',
       credentials: 'omit'
     });
@@ -271,5 +271,5 @@ export const getAccumulatedResults = async () => {
 
 // 누적 예측 보고서 URL 가져오기
 export const getAccumulatedReportURL = () => {
-  return `${API_BASE_URL}/api/results/accumulated/report`;
+  return `${API_BASE_URL}/results/accumulated/report`;
 };
