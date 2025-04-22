@@ -116,8 +116,27 @@ const AccumulatedSummary = ({ data, onDownloadReport }) => {
     }
 
     // 최적 구매 기간
-    if (pred.interval_scores && pred.interval_scores.length > 0) {
-      totalBestIntervalDays += pred.interval_scores[0].days;
+    if (pred.interval_scores) {
+      if (Array.isArray(pred.interval_scores) && pred.interval_scores.length > 0) {
+        // 배열인 경우
+        const bestInterval = pred.interval_scores[0];
+        if (bestInterval && bestInterval.days) {
+          totalBestIntervalDays += bestInterval.days;
+        }
+      } else if (typeof pred.interval_scores === 'object' && Object.keys(pred.interval_scores).length > 0) {
+        // 객체인 경우
+        const intervalScoresList = Object.values(pred.interval_scores);
+        if (intervalScoresList.length > 0) {
+          // 점수가 가장 높은 구간 찾기
+          const bestInterval = intervalScoresList.reduce((best, current) => {
+            return (!best || current.score > best.score) ? current : best;
+          }, null);
+          
+          if (bestInterval && bestInterval.days) {
+            totalBestIntervalDays += bestInterval.days;
+          }
+        }
+      }
     }
   });
 
