@@ -90,14 +90,29 @@ const MovingAverageChart = ({ data }) => {
           <Tooltip
             formatter={(value, name) => {
               if (value === null) return ['데이터 없음', name];
-              return [
-                `${parseFloat(value).toFixed(2)}`,
-                name === "prediction" ? "예측 가격" :
-                name === "ma5" ? "5일 이동평균" :
-                name === "ma10" ? "10일 이동평균" : "23일 이동평균"
-              ]
+              let displayName;
+              switch(name) {
+                case "prediction":
+                  displayName = "예측 가격";
+                  break;
+                case "actual":
+                  displayName = "실제 가격";
+                  break;
+                case "ma5":
+                  displayName = "5일 이동평균";
+                  break;
+                case "ma10":
+                  displayName = "10일 이동평균";
+                  break;
+                case "ma23":
+                  displayName = "23일 이동평균";
+                  break;
+                default:
+                  displayName = name;  // 알 수 없는 경우 원본 이름 표시
+              }
+              return [`${parseFloat(value).toFixed(2)}`, displayName];
             }}
-            labelFormatter={(label) => `날짜: ${label}`}
+            labelFormatter={(label) => `날짜: ${formatDate(label)}`}
           />
           <Legend />
           <Line 
