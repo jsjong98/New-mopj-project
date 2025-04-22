@@ -24,9 +24,19 @@ RUN apt-get update \
  && dpkg-reconfigure -f noninteractive tzdata \
  && rm -rf /var/lib/apt/lists/*
 
-# 1) pip, setuptools, wheel 업그레이드
-# 2) requirements.txt 복사 & 설치
+# 1) pip/​setuptools/​wheel 최신화
 RUN pip install --no-cache-dir --upgrade pip setuptools wheel
+
+# 2) Conda로 과학 스택 설치 (C-API 버전 충돌 방지)
+RUN conda install -y \
+      numpy=1.24 \
+      pandas=1.5 \
+      scikit-learn=1.2 \
+      matplotlib=3.7 \
+      seaborn=0.13 \
+ && conda clean -afy
+
+# 3) 순수 Python 패키지 설치
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
