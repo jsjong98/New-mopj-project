@@ -90,6 +90,7 @@ const AccumulatedSummary = ({ data, onDownloadReport }) => {
   let totalMaxPrice = 0;
   let totalPriceRange = 0;
   let totalBestIntervalDays = 0;
+  let intervalCount = 0; // 유효한 interval_scores를 가진 예측의 수
   let uptrends = 0;
   let downtrends = 0;
   let total = data.predictions.length;
@@ -122,6 +123,7 @@ const AccumulatedSummary = ({ data, onDownloadReport }) => {
         const bestInterval = pred.interval_scores[0];
         if (bestInterval && bestInterval.days) {
           totalBestIntervalDays += bestInterval.days;
+          intervalCount++;
         }
       } else if (typeof pred.interval_scores === 'object' && Object.keys(pred.interval_scores).length > 0) {
         // 객체인 경우
@@ -129,11 +131,12 @@ const AccumulatedSummary = ({ data, onDownloadReport }) => {
         if (intervalScoresList.length > 0) {
           // 점수가 가장 높은 구간 찾기
           const bestInterval = intervalScoresList.reduce((best, current) => {
-            return (!best || current.score > best.score) ? current : best;
+            return (!best || (current && current.score > best.score)) ? current : best;
           }, null);
           
           if (bestInterval && bestInterval.days) {
             totalBestIntervalDays += bestInterval.days;
+            intervalCount++;
           }
         }
       }
@@ -144,7 +147,7 @@ const AccumulatedSummary = ({ data, onDownloadReport }) => {
   const avgMinPrice = totalMinPrice / total;
   const avgMaxPrice = totalMaxPrice / total;
   const avgPriceRange = totalPriceRange / total;
-  const avgBestIntervalDays = totalBestIntervalDays / total;
+  const avgBestIntervalDays = intervalCount > 0 ? totalBestIntervalDays / intervalCount : 0;
   
   // 추세 분포
   const uptrendPercent = (uptrends / total) * 100;
@@ -204,7 +207,7 @@ const AccumulatedSummary = ({ data, onDownloadReport }) => {
           <div style={styles.cardHeader}>평균 최적 구매 기간</div>
           <div style={styles.metricValue}>
             <DollarSign size={18} style={{display: 'inline', marginRight: '0.25rem'}} />
-            {avgBestIntervalDays.toFixed(1)}일
+            {avgBestIntervalDays > 0 ? avgBestIntervalDays.toFixed(1) + '일' : '0.0일'}
           </div>
         </div>
       </div>
