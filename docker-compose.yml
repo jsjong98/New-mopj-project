@@ -6,12 +6,22 @@ services:
     container_name: mopj-backend
     restart: always
     ports:
-      - "5000:5000"  # 이 줄이 필요합니다!
+      - "5000:5000"
     volumes:
       - ./backend/models:/app/models
       - ./backend/static:/app/static
       - ./backend/uploads:/app/uploads
       - ./logs:/app/logs
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
 
   frontend:
     build: ./mopj-dashboard
