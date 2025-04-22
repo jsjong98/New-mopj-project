@@ -527,18 +527,6 @@ def get_semimonthly_date_range(semimonthly_period):
 def get_next_semimonthly_dates(current_date, original_df):
     """
     현재 날짜 이후의 다음 반월 기간에 속하는 모든 영업일 목록을 반환하는 함수
-    
-    Parameters:
-    -----------
-    current_date : datetime
-        현재 날짜
-    original_df : DataFrame
-        원본 데이터프레임 (DatetimeIndex)
-    
-    Returns:
-    --------
-    tuple
-        (다음 반월 기간에 속하는 영업일 목록, 다음 반월 기간 문자열)
     """
     # 다음 반월 기간 계산
     next_period = get_next_semimonthly_period(current_date)
@@ -566,7 +554,7 @@ def get_next_semimonthly_dates(current_date, original_df):
             synthetic_date = max(current_date, start_date) + pd.Timedelta(days=1)
         
         # 반월 기간 내에서만 날짜 생성
-        while len(business_days) < 15 and synthetic_date <= end_date:  # 최대 15일까지
+        while len(business_days) < 15 and synthetic_date <= end_date:  # 반월 기간 초과 방지
             if synthetic_date.weekday() < 5:  # 평일만 추가
                 business_days.append(synthetic_date)
             synthetic_date += pd.Timedelta(days=1)
@@ -2340,15 +2328,17 @@ def generate_predictions(df, current_date, predict_window=23, features=None, tar
         logger.info(f"Semimonthly period: {semimonthly_period}")
         logger.info(f"Next semimonthly period: {next_semimonthly_period}")
         
-        # 다음 영업일 계산
-        business_days, next_period = get_next_semimonthly_dates(current_date, df)
-
-        if not business_days:
+        # 23일치 예측을 위한 날짜 생성
+        all_business_days = get_next_n_business_days(current_date, df, predict_window)
+        
+        # 다음 반월 기간의 날짜만 추출
+        semimonthly_business_days, next_period = get_next_semimonthly_dates(current_date, df)
+        
+        if not all_business_days:
             raise ValueError(f"No future business days found after {current_date}")
 
-        logger.info(f"Predicting for dates: {[format_date(d) for d in business_days[:5]]}...")
-        
-        logger.info(f"Next {predict_window} business days identified")
+        logger.info(f"Predicting for {len(all_business_days)} days")
+        logger.info(f"Next semimonthly period has {len(semimonthly_business_days)} business days")
         
         # 특성 선택 (사용자 지정 특성이 없으면 그룹별 선택)
         historical_data = df[df.index <= current_date].copy()
@@ -2371,16 +2361,11 @@ def generate_predictions(df, current_date, predict_window=23, features=None, tar
         
         logger.info(f"Selected features ({len(selected_features)}): {selected_features}")
         
-        # 반월 기간 계산
-        semimonthly_period = get_semimonthly_period(current_date)
-        
         # 선택된 특성으로 스케일링
         scaled_data = StandardScaler().fit_transform(historical_data[selected_features])
         target_col_idx = selected_features.index(target_col)
         
-        # 여기서 하이퍼파라미터 최적화 수행
-        # 기본 하이퍼파라미터
-        # 현재 반월 기간에 대해 하이퍼파라미터 최적화 수행
+        # 하이퍼파라미터 최적화 수행
         optimized_params = optimize_hyperparameters_semimonthly_kfold(
             train_data=scaled_data,
             input_size=len(selected_features),
@@ -2401,7 +2386,7 @@ def generate_predictions(df, current_date, predict_window=23, features=None, tar
             current_date,
             historical_data,
             device,
-            optimized_params  # 기본 하이퍼파라미터 대신 최적화된 파라미터 사용
+            optimized_params
         )
         
         # 예측 데이터 준비
@@ -2417,8 +2402,8 @@ def generate_predictions(df, current_date, predict_window=23, features=None, tar
         
         # 예측 시퀀스 준비
         with torch.no_grad():
-            # 23영업일까지 예측 생성
-            max_pred_days = min(predict_window, len(business_days))
+            # 23영업일 전체에 대해 예측 수행
+            max_pred_days = min(predict_window, len(all_business_days))
             current_sequence = sequence.copy()
             
             # 텐서로 변환
@@ -2428,8 +2413,8 @@ def generate_predictions(df, current_date, predict_window=23, features=None, tar
             # 전체 시퀀스 예측
             pred = model(X, prev_tensor).cpu().numpy()[0]
             
-            # 각 날짜별 예측 생성
-            for j, pred_date in enumerate(business_days[:max_pred_days]):
+            # 각 날짜별 예측 생성 (23일 전체)
+            for j, pred_date in enumerate(all_business_days[:max_pred_days]):
                 # 스케일 역변환
                 dummy_matrix = np.zeros((1, len(selected_features)))
                 dummy_matrix[0, target_col_idx] = pred[j]
@@ -2440,7 +2425,7 @@ def generate_predictions(df, current_date, predict_window=23, features=None, tar
                 if pred_date in df.index:
                     actual_value = df.loc[pred_date, target_col]
                 
-                # 예측 결과 저장 - 데이터셋 외부 날짜는 is_synthetic 플래그 추가
+                # 예측 결과 저장
                 predictions.append({
                     'Date': pred_date,
                     'Prediction': float(pred_value),
@@ -2448,12 +2433,13 @@ def generate_predictions(df, current_date, predict_window=23, features=None, tar
                     'Prediction_From': current_date,
                     'SemimonthlyPeriod': semimonthly_period,
                     'NextSemimonthlyPeriod': next_semimonthly_period,
-                    'is_synthetic': pred_date not in df.index  # 데이터셋 외부 날짜 표시
+                    'is_synthetic': pred_date not in df.index
                 })
         
-        # 구간 평균 및 점수 계산 (전달 인수: predictions와 business_days)
+        # 구간 평균 및 점수 계산은 다음 반월 기간의 날짜만 사용
         interval_averages, interval_scores, analysis_info = calculate_interval_averages_and_scores(
-            predictions, business_days  # business_days가 이미 다음 반월의 영업일만 포함
+            predictions, 
+            semimonthly_business_days  # 다음 반월 기간의 영업일만 사용
         )
 
         # 최종 구매 구간 결정
@@ -2478,7 +2464,7 @@ def generate_predictions(df, current_date, predict_window=23, features=None, tar
         # 이동평균 계산
         ma_results = calculate_moving_averages_with_history(
             predictions, 
-            historical_data,  # 현재 날짜까지의 데이터
+            historical_data,
             target_col=target_col
         )
         
@@ -2501,11 +2487,6 @@ def generate_predictions(df, current_date, predict_window=23, features=None, tar
             }
         except Exception as e:
             logger.error(f"Error in attention analysis: {str(e)}")
-        
-        # 성능 메트릭 계산
-        sequence_df = pd.DataFrame(predictions)
-        start_day_value = df.loc[current_date, target_col]
-        metrics = compute_performance_metrics(sequence_df, start_day_value)
         
         # 예측 결과 시각화
         basic_plot_file, basic_plot_img = plot_prediction_basic(
