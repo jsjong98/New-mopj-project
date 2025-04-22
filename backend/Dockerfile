@@ -17,8 +17,8 @@ RUN apt-get update \
       libsm6 \
       libxext6 \
       libxrender-dev \
-      python3-distutils \        # ← 여기에 추가
-      python3-dev               # ← scikit-learn 빌드 시 헤더가 필요하다면 추가
+      python3-distutils \
+      python3-dev \
  && ln -fs /usr/share/zoneinfo/$TZ /etc/localtime \
  && echo $TZ > /etc/timezone \
  && dpkg-reconfigure -f noninteractive tzdata \
