@@ -7,7 +7,7 @@ ENV TZ=Asia/Seoul
 
 WORKDIR /app
 
-# 시스템 의존성 설치 (tzdata + distutils 포함)
+# 시스템 의존성 (tzdata + distutils + dev 헤더)
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
       tzdata \
@@ -24,14 +24,16 @@ RUN apt-get update \
  && dpkg-reconfigure -f noninteractive tzdata \
  && rm -rf /var/lib/apt/lists/*
 
-# Python 패키지 설치
+# 1) pip, setuptools, wheel 업그레이드
+# 2) requirements.txt 복사 & 설치
+RUN pip install --no-cache-dir --upgrade pip setuptools wheel
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # 애플리케이션 코드 복사
 COPY . .
 
-# 로그·모델 등 필요한 디렉터리 미리 생성
+# 로그·모델·업로드 폴더 미리 생성
 RUN mkdir -p models static/plots static/reports static/ma_plots static/attention uploads
 
 EXPOSE 5000
