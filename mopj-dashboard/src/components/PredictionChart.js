@@ -68,7 +68,7 @@ const PredictionChart = ({ data, title }) => {
               `${parseFloat(value).toFixed(2)}`,
               name === "Prediction" ? "예측 가격" : "실제 가격"
             ]}
-            labelFormatter={(label) => `날짜: ${label}`}
+            labelFormatter={(label) => `날짜: ${formatDate(label)}`}
           />
           <Legend />
           <Line 
