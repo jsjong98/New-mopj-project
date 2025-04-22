@@ -537,8 +537,8 @@ def get_next_semimonthly_dates(current_date, original_df):
     
     Returns:
     --------
-    list
-        다음 반월 기간에 속하는 영업일 목록 (datetime 객체)
+    tuple
+        (다음 반월 기간에 속하는 영업일 목록, 다음 반월 기간 문자열)
     """
     # 다음 반월 기간 계산
     next_period = get_next_semimonthly_period(current_date)
@@ -554,17 +554,24 @@ def get_next_semimonthly_dates(current_date, original_df):
         if start_date <= date <= end_date and date.weekday() < 5:
             business_days.append(date)
     
-    # 날짜가 없으면 추가 로직 - 일부 합성 날짜 생성
-    if not business_days:
-        logger.warning(f"No business days found in the next semimonthly period. Creating synthetic dates.")
-        # 다음 5개 영업일을 생성
-        current_date_obj = pd.to_datetime(current_date)
-        synthetic_date = current_date_obj + pd.Timedelta(days=1)
-        for _ in range(23):  # 23개 영업일 생성
-            while synthetic_date.weekday() >= 5:  # 주말 건너뛰기
-                synthetic_date += pd.Timedelta(days=1)
-            business_days.append(synthetic_date)
+    # 날짜가 없거나 부족하면 추가 로직 - 반월 기간 내에서만 합성 날짜 생성
+    min_required_days = 5  # 최소 필요한 영업일 수
+    if len(business_days) < min_required_days:
+        logger.warning(f"Only {len(business_days)} business days found in the next semimonthly period. Creating synthetic dates.")
+        
+        # 마지막 실제 날짜 또는 시작일부터 시작
+        if business_days:
+            synthetic_date = business_days[-1] + pd.Timedelta(days=1)
+        else:
+            synthetic_date = max(current_date, start_date) + pd.Timedelta(days=1)
+        
+        # 반월 기간 내에서만 날짜 생성
+        while len(business_days) < 15 and synthetic_date <= end_date:  # 최대 15일까지
+            if synthetic_date.weekday() < 5:  # 평일만 추가
+                business_days.append(synthetic_date)
             synthetic_date += pd.Timedelta(days=1)
+        
+        logger.info(f"Created synthetic dates. Total business days: {len(business_days)} for period {next_period}")
     
     # 날짜순으로 정렬
     business_days.sort()
