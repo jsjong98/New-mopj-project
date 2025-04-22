@@ -1,11 +1,16 @@
-FROM python:3.9-slim
+# GPU 지원을 위한 PyTorch 베이스 이미지 사용
+FROM pytorch/pytorch:2.0.1-cuda11.7-cudnn8-runtime
 
 WORKDIR /app
 
-# 시스템 의존성 설치 (matplotlib, pytorch 등에 필요한 라이브러리)
+# 시스템 의존성 설치 (matplotlib 등에 필요한 라이브러리)
 RUN apt-get update && apt-get install -y \
     build-essential \
     libopenblas-dev \
+    libglib2.0-0 \
+    libsm6 \
+    libxext6 \
+    libxrender-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # 필요한 Python 패키지 설치
