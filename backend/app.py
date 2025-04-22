@@ -2334,7 +2334,7 @@ def generate_predictions(df, current_date, predict_window=23, features=None, tar
         logger.info(f"Next semimonthly period: {next_semimonthly_period}")
         
         # 다음 영업일 계산
-        business_days = get_next_n_business_days(current_date, df, predict_window)
+        business_days, next_period = get_next_semimonthly_dates(current_date, df)
 
         if not business_days:
             raise ValueError(f"No future business days found after {current_date}")
@@ -2446,7 +2446,7 @@ def generate_predictions(df, current_date, predict_window=23, features=None, tar
         
         # 구간 평균 및 점수 계산 (전달 인수: predictions와 business_days)
         interval_averages, interval_scores, analysis_info = calculate_interval_averages_and_scores(
-            predictions, business_days
+            predictions, business_days  # business_days가 이미 다음 반월의 영업일만 포함
         )
 
         # 최종 구매 구간 결정
