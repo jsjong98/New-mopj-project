@@ -273,3 +273,87 @@ export const getAccumulatedResults = async () => {
 export const getAccumulatedReportURL = () => {
   return `${API_BASE_URL}/results/accumulated/report`;
 };
+
+// =================== 휴일 관리 관련 API 함수 추가 ===================
+
+// 휴일 목록 조회
+export const getHolidays = async () => {
+  try {
+    const response = await fetch(`${API_BASE_URL}/holidays`, {
+      mode: 'cors',
+      credentials: 'omit'
+    });
+    
+    if (!response.ok) {
+      throw new Error('휴일 목록 조회 실패');
+    }
+    
+    return await response.json();
+  } catch (error) {
+    console.error('Get holidays error:', error);
+    return { 
+      error: error.message || '휴일 목록을 가져오는 중 오류가 발생했습니다.',
+      holidays: [],
+      success: false 
+    };
+  }
+};
+
+// 휴일 파일 업로드
+export const uploadHolidayFile = async (file) => {
+  const formData = new FormData();
+  formData.append('file', file);
+  
+  try {
+    const response = await fetch(`${API_BASE_URL}/holidays/upload`, {
+      method: 'POST',
+      body: formData,
+      mode: 'cors',
+      credentials: 'omit'
+    });
+    
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('Holiday file upload failed:', errorText);
+      throw new Error('휴일 파일 업로드 실패');
+    }
+    
+    return await response.json();
+  } catch (error) {
+    console.error('Upload holiday file error:', error);
+    return { 
+      error: error.message || '휴일 파일 업로드 중 오류가 발생했습니다.',
+      success: false 
+    };
+  }
+};
+
+// 휴일 정보 재로드
+export const reloadHolidays = async (filepath = null) => {
+  try {
+    const payload = {};
+    if (filepath) payload.filepath = filepath;
+    
+    const response = await fetch(`${API_BASE_URL}/holidays/reload`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(payload),
+      mode: 'cors',
+      credentials: 'omit'
+    });
+    
+    if (!response.ok) {
+      throw new Error('휴일 정보 새로고침 실패');
+    }
+    
+    return await response.json();
+  } catch (error) {
+    console.error('Reload holidays error:', error);
+    return {
+      error: error.message || '휴일 정보 새로고침 중 오류가 발생했습니다.',
+      success: false
+    };
+  }
+};
