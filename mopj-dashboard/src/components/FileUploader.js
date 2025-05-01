@@ -52,7 +52,13 @@ const styles = {
   }
 };
 
-const FileUploader = ({ onUploadSuccess, isLoading, setIsLoading }) => {
+const FileUploader = ({ 
+  onUploadSuccess, 
+  isLoading, 
+  setIsLoading, 
+  acceptedFormats = '.csv', 
+  fileType = 'CSV' 
+}) => {
   const [error, setError] = useState(null);
   const [dragActive, setDragActive] = useState(false);
 
@@ -84,7 +90,14 @@ const FileUploader = ({ onUploadSuccess, isLoading, setIsLoading }) => {
   };
 
   const handleFileUpload = async (file) => {
-    // 파일 형식 및 크기 확인 코드는 유지
+    // 파일 형식 확인
+    const validExtensions = acceptedFormats.split(',');
+    const fileExtension = '.' + file.name.split('.').pop().toLowerCase();
+    
+    if (!validExtensions.includes(fileExtension)) {
+      setError(`지원되지 않는 파일 형식입니다. ${acceptedFormats} 파일만 업로드 가능합니다.`);
+      return;
+    }
     
     setIsLoading(true);
     setError(null);
@@ -99,21 +112,32 @@ const FileUploader = ({ onUploadSuccess, isLoading, setIsLoading }) => {
         return;
       }
       
-      // 업로드 성공 후 날짜 정보 요청
-      const datesResult = await getAvailableDates(uploadResult.filepath);
-      
-      // 날짜 정보 오류 확인
-      if (datesResult.error) {
-        setError(datesResult.error);
-        return;
+      // 데이터 파일인 경우 날짜 정보 요청
+      if (fileType.toLowerCase() === 'csv' || fileType.toLowerCase() === '데이터') {
+        // 업로드 성공 후 날짜 정보 요청
+        const datesResult = await getAvailableDates(uploadResult.filepath);
+        
+        // 날짜 정보 오류 확인
+        if (datesResult.error) {
+          setError(datesResult.error);
+          return;
+        }
+        
+        // 성공 콜백 호출
+        onUploadSuccess({
+          filepath: uploadResult.filepath,
+          dates: datesResult.dates || [],
+          latestDate: datesResult.latest_date,
+          file: file
+        });
+      } else {
+        // 휴일 파일 등 다른 용도의 파일
+        onUploadSuccess({
+          filepath: uploadResult.filepath,
+          filename: uploadResult.filename,
+          file: file
+        });
       }
-      
-      // 성공 콜백 호출
-      onUploadSuccess({
-        filepath: uploadResult.filepath,
-        dates: datesResult.dates || [],
-        latestDate: datesResult.latest_date
-      });
     } catch (err) {
       console.error('File upload failed:', err);
       setError(err.error || err.message || '파일 업로드 중 오류가 발생했습니다.');
@@ -131,14 +155,14 @@ const FileUploader = ({ onUploadSuccess, isLoading, setIsLoading }) => {
       onDrop={handleDrop}
     >
       <Upload style={styles.icon} />
-      <p style={styles.text}>CSV 파일을 드래그하여 업로드하거나 클릭하여 선택하세요</p>
-      <p style={styles.smallText}>지원 형식: .csv</p>
+      <p style={styles.text}>{fileType} 파일을 드래그하여 업로드하거나 클릭하여 선택하세요</p>
+      <p style={styles.smallText}>지원 형식: {acceptedFormats}</p>
       
       <input
         type="file"
         id="file-upload"
         style={styles.hidden}
-        accept=".csv"
+        accept={acceptedFormats}
         onChange={handleFileChange}
         disabled={isLoading}
       />
@@ -147,7 +171,7 @@ const FileUploader = ({ onUploadSuccess, isLoading, setIsLoading }) => {
         htmlFor="file-upload"
         style={styles.button(isLoading)}
       >
-        {isLoading ? '처리 중...' : 'CSV 파일 업로드'}
+        {isLoading ? '처리 중...' : `${fileType} 파일 업로드`}
       </label>
       
       {error && (
