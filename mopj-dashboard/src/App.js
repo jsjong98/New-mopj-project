@@ -10,6 +10,7 @@ import AccumulatedMetricsChart from './components/AccumulatedMetricsChart';
 import AccumulatedResultsTable from './components/AccumulatedResultsTable';
 import AccumulatedSummary from './components/AccumulatedSummary';
 import AccumulatedIntervalScoresTable from './components/AccumulatedIntervalScoresTable';
+import HolidayManager from './components/HolidayManager'; // 휴일 관리 컴포넌트 추가
 import { 
   startPrediction, 
   getPredictionStatus, 
@@ -211,6 +212,9 @@ const App = () => {
   
   // 탭 관리
   const [activeTab, setActiveTab] = useState('single'); // 'single' 또는 'accumulated'
+  
+  // 시스템 탭 관리 ('prediction' 또는 'settings')
+  const [systemTab, setSystemTab] = useState('prediction');
   
   // 누적 예측 관련 상태
   const [accumulatedResults, setAccumulatedResults] = useState(null);
@@ -440,267 +444,297 @@ const App = () => {
       </header>
 
       <main style={styles.mainContent}>
-        {/* 데이터 업로드 섹션 */}
-        <div style={styles.card}>
-          <div style={styles.cardHeader}>
-            <h2 style={styles.cardTitle}>
-              <Database size={18} style={styles.iconStyle} />
-              데이터 입력
-            </h2>
-            {isCSVUploaded && (
-              <button
-                style={styles.refreshButton}
-                onClick={handleRefresh}
-                disabled={isLoading || isPredicting}
-              >
-                <RefreshCw size={16} style={isLoading || isPredicting ? { animation: 'spin 1s linear infinite' } : {}} />
-                <span>새로고침</span>
-              </button>
-            )}
+        {/* 시스템 탭 선택 */}
+        <div style={styles.tabContainer}>
+          <div 
+            style={styles.tab(systemTab === 'prediction')}
+            onClick={() => setSystemTab('prediction')}
+          >
+            <TrendingUp size={16} />
+            예측 시스템
           </div>
-          
-          {/* 탭 선택 */}
-          {isCSVUploaded && (
-            <div style={styles.tabContainer}>
-              <div 
-                style={styles.tab(activeTab === 'single')}
-                onClick={() => setActiveTab('single')}
-              >
-                <TrendingUp size={16} />
-                단일 날짜 예측
-              </div>
-              <div 
-                style={styles.tab(activeTab === 'accumulated')}
-                onClick={() => setActiveTab('accumulated')}
-              >
-                <Activity size={16} />
-                누적 예측 분석
-              </div>
-            </div>
-          )}
-          
-          {/* 파일 업로드 컴포넌트 */}
-          {!isCSVUploaded && (
-            <FileUploader 
-              onUploadSuccess={handleUploadSuccess}
-              isLoading={isLoading}
-              setIsLoading={setIsLoading}
-            />
-          )}
-          
-          {/* 단일 예측 날짜 선택 */}
-          {isCSVUploaded && activeTab === 'single' && (
-            <div style={styles.dateSelectContainer}>
-              <div style={styles.selectContainer}>
-                <label htmlFor="date-select" style={styles.selectLabel}>
-                  기준 날짜 선택
-                </label>
-                <select
-                  id="date-select"
-                  style={styles.dateSelect}
-                  value={selectedDate || ''}
-                  onChange={(e) => setSelectedDate(e.target.value)}
-                  disabled={isPredicting}
-                >
-                  {fileInfo.dates.map((date) => (
-                    <option key={date} value={date}>{date}</option>
-                  ))}
-                </select>
-              </div>
-              
-              <button
-                style={styles.predictionButton}
-                onClick={handleStartPrediction}
-                disabled={isPredicting || !selectedDate}
-              >
-                <TrendingUp size={18} />
-                {isPredicting ? '예측 중...' : '예측 시작'}
-              </button>
-            </div>
-          )}
-          
-          {/* 누적 예측 날짜 선택 */}
-          {isCSVUploaded && activeTab === 'accumulated' && (
-            <div style={styles.dateSelectContainer}>
-              <div style={styles.selectContainer}>
-                <label htmlFor="start-date-select" style={styles.selectLabel}>
-                  시작 날짜
-                </label>
-                <select
-                  id="start-date-select"
-                  style={styles.dateSelect}
-                  value={selectedDate || ''}
-                  onChange={(e) => setSelectedDate(e.target.value)}
-                  disabled={isPredicting}
-                >
-                  {fileInfo.dates.map((date) => (
-                    <option key={date} value={date}>{date}</option>
-                  ))}
-                </select>
-              </div>
-              
-              <div style={styles.selectContainer}>
-                <label htmlFor="end-date-select" style={styles.selectLabel}>
-                  종료 날짜
-                </label>
-                <select
-                  id="end-date-select"
-                  style={styles.dateSelect}
-                  value={endDate || ''}
-                  onChange={(e) => setEndDate(e.target.value)}
-                  disabled={isPredicting}
-                >
-                  {fileInfo.dates
-                    .filter(date => date >= selectedDate)
-                    .map((date) => (
-                    <option key={date} value={date}>{date}</option>
-                  ))}
-                </select>
-              </div>
-              
-              <button
-                style={styles.accumulatedButton}
-                onClick={handleStartAccumulatedPrediction}
-                disabled={isPredicting || !selectedDate || !endDate}
-              >
-                <Activity size={18} />
-                {isPredicting ? '누적 예측 중...' : '누적 예측 시작'}
-              </button>
-            </div>
-          )}
-          
-          {/* 진행 상태 표시 */}
-          {isPredicting && (
-            <div style={styles.progressContainer}>
-              <p style={styles.progressText}>예측 진행 상태: {progress}%</p>
-              <ProgressBar progress={progress} />
-            </div>
-          )}
-          
-          {/* 오류 메시지 */}
-          {error && (
-            <div style={styles.errorMessage}>
-              <AlertTriangle size={16} style={{ marginRight: '0.25rem' }} />
-              {error}
-            </div>
-          )}
+          <div 
+            style={styles.tab(systemTab === 'settings')}
+            onClick={() => setSystemTab('settings')}
+          >
+            <Calendar size={16} />
+            휴일 설정
+          </div>
         </div>
 
-        {/* 단일 예측 결과 대시보드 */}
-        {activeTab === 'single' && predictionData.length > 0 && (
-          <div style={{
-            display: 'grid',
-            gridTemplateColumns: window.innerWidth >= 768 ? 'repeat(2, 1fr)' : '1fr',
-            gap: '1.5rem'
-          }}>
-            {/* 가격 예측 차트 */}
-            <div style={styles.card}>
-              <h2 style={styles.cardTitle}>
-                <TrendingUp size={18} style={styles.iconStyle} />
-                향후 23일 가격 예측
-              </h2>
-              <PredictionChart data={predictionData} />
-            </div>
-
-            {/* 이동평균 차트 */}
-            <div style={styles.card}>
-              <h2 style={styles.cardTitle}>
-                <Clock size={18} style={styles.iconStyle} />
-                이동평균 분석 (5일, 10일, 23일)
-              </h2>
-              <MovingAverageChart data={maResults} />
-            </div>
-
-            {/* 구간 점수표 */}
-            <div style={styles.card}>
-              <h2 style={styles.cardTitle}>
-                <Award size={18} style={styles.iconStyle} />
-                구매 의사결정 구간 점수표
-              </h2>
-              <IntervalScoresTable data={intervalScores} />
-            </div>
-
-            {/* 어텐션 맵 시각화 */}
-            <div style={styles.card}>
-              <h2 style={styles.cardTitle}>
-                <Grid size={18} style={styles.iconStyle} />
-                특성 중요도 시각화 (Attention Map)
-              </h2>
-              <AttentionMap imageData={attentionImage} />
-              <div style={styles.helpText}>
-                <p>* 상위 특성이 MOPJ 예측에 가장 큰 영향을 미치는 요소입니다.</p>
-              </div>
-            </div>
+        {/* 휴일 관리 탭 */}
+        {systemTab === 'settings' && (
+          <div style={styles.card}>
+            <HolidayManager />
           </div>
         )}
-        
-        {/* 누적 예측 결과 대시보드 */}
-        {activeTab === 'accumulated' && accumulatedResults && (
+
+        {/* 예측 시스템 탭 */}
+        {systemTab === 'prediction' && (
           <>
-            {/* 누적 예측 요약 */}
-            <AccumulatedSummary 
-              data={accumulatedResults} 
-              onDownloadReport={handleDownloadReport}
-            />
-            
-            {/* 신뢰 날짜 구매 의사결정 구간 카드 추가 */}
+            {/* 데이터 업로드 섹션 */}
             <div style={styles.card}>
-              <h2 style={styles.cardTitle}>
-                <Award size={18} style={styles.iconStyle} />
-                신뢰 날짜 구매 의사결정 구간
-              </h2>
-              <AccumulatedIntervalScoresTable data={accumulatedResults} />
+              <div style={styles.cardHeader}>
+                <h2 style={styles.cardTitle}>
+                  <Database size={18} style={styles.iconStyle} />
+                  데이터 입력
+                </h2>
+                {isCSVUploaded && (
+                  <button
+                    style={styles.refreshButton}
+                    onClick={handleRefresh}
+                    disabled={isLoading || isPredicting}
+                  >
+                    <RefreshCw size={16} style={isLoading || isPredicting ? { animation: 'spin 1s linear infinite' } : {}} />
+                    <span>새로고침</span>
+                  </button>
+                )}
+              </div>
+              
+              {/* 탭 선택 */}
+              {isCSVUploaded && (
+                <div style={styles.tabContainer}>
+                  <div 
+                    style={styles.tab(activeTab === 'single')}
+                    onClick={() => setActiveTab('single')}
+                  >
+                    <TrendingUp size={16} />
+                    단일 날짜 예측
+                  </div>
+                  <div 
+                    style={styles.tab(activeTab === 'accumulated')}
+                    onClick={() => setActiveTab('accumulated')}
+                  >
+                    <Activity size={16} />
+                    누적 예측 분석
+                  </div>
+                </div>
+              )}
+              
+              {/* 파일 업로드 컴포넌트 */}
+              {!isCSVUploaded && (
+                <FileUploader 
+                  onUploadSuccess={handleUploadSuccess}
+                  isLoading={isLoading}
+                  setIsLoading={setIsLoading}
+                />
+              )}
+              
+              {/* 단일 예측 날짜 선택 */}
+              {isCSVUploaded && activeTab === 'single' && (
+                <div style={styles.dateSelectContainer}>
+                  <div style={styles.selectContainer}>
+                    <label htmlFor="date-select" style={styles.selectLabel}>
+                      기준 날짜 선택
+                    </label>
+                    <select
+                      id="date-select"
+                      style={styles.dateSelect}
+                      value={selectedDate || ''}
+                      onChange={(e) => setSelectedDate(e.target.value)}
+                      disabled={isPredicting}
+                    >
+                      {fileInfo.dates.map((date) => (
+                        <option key={date} value={date}>{date}</option>
+                      ))}
+                    </select>
+                  </div>
+                  
+                  <button
+                    style={styles.predictionButton}
+                    onClick={handleStartPrediction}
+                    disabled={isPredicting || !selectedDate}
+                  >
+                    <TrendingUp size={18} />
+                    {isPredicting ? '예측 중...' : '예측 시작'}
+                  </button>
+                </div>
+              )}
+              
+              {/* 누적 예측 날짜 선택 */}
+              {isCSVUploaded && activeTab === 'accumulated' && (
+                <div style={styles.dateSelectContainer}>
+                  <div style={styles.selectContainer}>
+                    <label htmlFor="start-date-select" style={styles.selectLabel}>
+                      시작 날짜
+                    </label>
+                    <select
+                      id="start-date-select"
+                      style={styles.dateSelect}
+                      value={selectedDate || ''}
+                      onChange={(e) => setSelectedDate(e.target.value)}
+                      disabled={isPredicting}
+                    >
+                      {fileInfo.dates.map((date) => (
+                        <option key={date} value={date}>{date}</option>
+                      ))}
+                    </select>
+                  </div>
+                  
+                  <div style={styles.selectContainer}>
+                    <label htmlFor="end-date-select" style={styles.selectLabel}>
+                      종료 날짜
+                    </label>
+                    <select
+                      id="end-date-select"
+                      style={styles.dateSelect}
+                      value={endDate || ''}
+                      onChange={(e) => setEndDate(e.target.value)}
+                      disabled={isPredicting}
+                    >
+                      {fileInfo.dates
+                        .filter(date => date >= selectedDate)
+                        .map((date) => (
+                        <option key={date} value={date}>{date}</option>
+                      ))}
+                    </select>
+                  </div>
+                  
+                  <button
+                    style={styles.accumulatedButton}
+                    onClick={handleStartAccumulatedPrediction}
+                    disabled={isPredicting || !selectedDate || !endDate}
+                  >
+                    <Activity size={18} />
+                    {isPredicting ? '누적 예측 중...' : '누적 예측 시작'}
+                  </button>
+                </div>
+              )}
+              
+              {/* 진행 상태 표시 */}
+              {isPredicting && (
+                <div style={styles.progressContainer}>
+                  <p style={styles.progressText}>예측 진행 상태: {progress}%</p>
+                  <ProgressBar progress={progress} />
+                </div>
+              )}
+              
+              {/* 오류 메시지 */}
+              {error && (
+                <div style={styles.errorMessage}>
+                  <AlertTriangle size={16} style={{ marginRight: '0.25rem' }} />
+                  {error}
+                </div>
+              )}
             </div>
+
+            {/* 단일 예측 결과 대시보드 */}
+            {activeTab === 'single' && predictionData.length > 0 && (
+              <div style={{
+                display: 'grid',
+                gridTemplateColumns: window.innerWidth >= 768 ? 'repeat(2, 1fr)' : '1fr',
+                gap: '1.5rem'
+              }}>
+                {/* 가격 예측 차트 */}
+                <div style={styles.card}>
+                  <h2 style={styles.cardTitle}>
+                    <TrendingUp size={18} style={styles.iconStyle} />
+                    향후 23일 가격 예측
+                  </h2>
+                  <PredictionChart data={predictionData} />
+                </div>
+
+                {/* 이동평균 차트 */}
+                <div style={styles.card}>
+                  <h2 style={styles.cardTitle}>
+                    <Clock size={18} style={styles.iconStyle} />
+                    이동평균 분석 (5일, 10일, 23일)
+                  </h2>
+                  <MovingAverageChart data={maResults} />
+                </div>
+
+                {/* 구간 점수표 */}
+                <div style={styles.card}>
+                  <h2 style={styles.cardTitle}>
+                    <Award size={18} style={styles.iconStyle} />
+                    구매 의사결정 구간 점수표
+                  </h2>
+                  <IntervalScoresTable data={intervalScores} />
+                </div>
+
+                {/* 어텐션 맵 시각화 */}
+                <div style={styles.card}>
+                  <h2 style={styles.cardTitle}>
+                    <Grid size={18} style={styles.iconStyle} />
+                    특성 중요도 시각화 (Attention Map)
+                  </h2>
+                  <AttentionMap imageData={attentionImage} />
+                  <div style={styles.helpText}>
+                    <p>* 상위 특성이 MOPJ 예측에 가장 큰 영향을 미치는 요소입니다.</p>
+                  </div>
+                </div>
+              </div>
+            )}
             
-            <div style={{
-              display: 'grid',
-              gridTemplateColumns: window.innerWidth >= 768 ? 'repeat(2, 1fr)' : '1fr',
-              gap: '1.5rem'
-            }}>
-              {/* 누적 예측 지표 차트 */}
-              <div style={styles.card}>
-                <h2 style={styles.cardTitle}>
-                  <Activity size={18} style={styles.iconStyle} />
-                  날짜별 예측 추이
-                </h2>
-                <AccumulatedMetricsChart 
-                  data={{
-                    metrics: accumulatedResults.predictions
-                  }}
-                />
-              </div>
-              
-              {/* 누적 예측 결과 테이블 */}
-              <div style={styles.card}>
-                <h2 style={styles.cardTitle}>
-                  <BarChart size={18} style={styles.iconStyle} />
-                  날짜별 예측 비교
-                </h2>
-                <AccumulatedResultsTable 
+            {/* 누적 예측 결과 대시보드 */}
+            {activeTab === 'accumulated' && accumulatedResults && (
+              <>
+                {/* 누적 예측 요약 */}
+                <AccumulatedSummary 
                   data={accumulatedResults} 
-                  currentDate={selectedAccumulatedDate}
-                  onSelectDate={handleAccumulatedDateSelect}
+                  onDownloadReport={handleDownloadReport}
                 />
-              </div>
-              
-              {/* 선택된 날짜의 예측 차트 */}
-              <div style={styles.card}>
-                <h2 style={styles.cardTitle}>
-                  <TrendingUp size={18} style={styles.iconStyle} />
-                  선택 날짜 ({selectedAccumulatedDate || '없음'}) 예측 결과
-                </h2>
-                <PredictionChart data={predictionData} />
-              </div>
-              
-              {/* 선택된 날짜의 구간 점수표 */}
-              <div style={styles.card}>
-                <h2 style={styles.cardTitle}>
-                  <Award size={18} style={styles.iconStyle} />
-                  선택 날짜 구매 의사결정 구간
-                </h2>
-                <IntervalScoresTable data={intervalScores} />
-              </div>
-            </div>
+                
+                {/* 신뢰 날짜 구매 의사결정 구간 카드 추가 */}
+                <div style={styles.card}>
+                  <h2 style={styles.cardTitle}>
+                    <Award size={18} style={styles.iconStyle} />
+                    신뢰 날짜 구매 의사결정 구간
+                  </h2>
+                  <AccumulatedIntervalScoresTable data={accumulatedResults} />
+                </div>
+                
+                <div style={{
+                  display: 'grid',
+                  gridTemplateColumns: window.innerWidth >= 768 ? 'repeat(2, 1fr)' : '1fr',
+                  gap: '1.5rem'
+                }}>
+                  {/* 누적 예측 지표 차트 */}
+                  <div style={styles.card}>
+                    <h2 style={styles.cardTitle}>
+                      <Activity size={18} style={styles.iconStyle} />
+                      날짜별 예측 추이
+                    </h2>
+                    <AccumulatedMetricsChart 
+                      data={{
+                        metrics: accumulatedResults.predictions
+                      }}
+                    />
+                  </div>
+                  
+                  {/* 누적 예측 결과 테이블 */}
+                  <div style={styles.card}>
+                    <h2 style={styles.cardTitle}>
+                      <BarChart size={18} style={styles.iconStyle} />
+                      날짜별 예측 비교
+                    </h2>
+                    <AccumulatedResultsTable 
+                      data={accumulatedResults} 
+                      currentDate={selectedAccumulatedDate}
+                      onSelectDate={handleAccumulatedDateSelect}
+                    />
+                  </div>
+                  
+                  {/* 선택된 날짜의 예측 차트 */}
+                  <div style={styles.card}>
+                    <h2 style={styles.cardTitle}>
+                      <TrendingUp size={18} style={styles.iconStyle} />
+                      선택 날짜 ({selectedAccumulatedDate || '없음'}) 예측 결과
+                    </h2>
+                    <PredictionChart data={predictionData} />
+                  </div>
+                  
+                  {/* 선택된 날짜의 구간 점수표 */}
+                  <div style={styles.card}>
+                    <h2 style={styles.cardTitle}>
+                      <Award size={18} style={styles.iconStyle} />
+                      선택 날짜 구매 의사결정 구간
+                    </h2>
+                    <IntervalScoresTable data={intervalScores} />
+                  </div>
+                </div>
+              </>
+            )}
           </>
         )}
       </main>
