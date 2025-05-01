@@ -186,6 +186,89 @@ variable_groups = {
     'ETF': ['DIG', 'DUG', 'IYE', 'VDE', 'XLE']
 }
 
+def load_holidays_from_file(filepath=None):
+    """
+    CSV 또는 Excel 파일에서 휴일 목록을 로드하는 함수
+    
+    Args:
+        filepath (str): 휴일 목록 파일 경로, None이면 기본 경로 사용
+    
+    Returns:
+        set: 휴일 날짜 집합 (YYYY-MM-DD 형식)
+    """
+    # 기본 파일 경로
+    if filepath is None:
+        filepath = os.path.join('models', 'holidays.csv')
+    
+    # 파일 확장자 확인
+    _, ext = os.path.splitext(filepath)
+    
+    # 파일이 존재하지 않으면 기본 휴일 목록 생성
+    if not os.path.exists(filepath):
+        logger.warning(f"Holiday file {filepath} not found. Creating default holiday file.")
+        
+        # 기본 2025년 싱가폴 공휴일
+        default_holidays = [
+            "2025-01-01", "2025-01-29", "2025-01-30", "2025-03-31", "2025-04-18", 
+            "2025-05-01", "2025-05-12", "2025-06-07", "2025-08-09", "2025-10-20", 
+            "2025-12-25", "2026-01-01"
+        ]
+        
+        # 기본 파일 생성
+        df = pd.DataFrame({'date': default_holidays, 'description': ['Singapore Holiday']*len(default_holidays)})
+        
+        if ext.lower() == '.xlsx':
+            df.to_excel(filepath, index=False)
+        else:
+            df.to_csv(filepath, index=False)
+        
+        logger.info(f"Created default holiday file at {filepath}")
+        return set(default_holidays)
+    
+    try:
+        # 파일 로드
+        if ext.lower() == '.xlsx':
+            df = pd.read_excel(filepath)
+        else:
+            df = pd.read_csv(filepath)
+        
+        # 'date' 컬럼이 있는지 확인
+        if 'date' not in df.columns:
+            logger.error(f"Holiday file {filepath} does not have 'date' column")
+            return set()
+        
+        # 날짜 형식 표준화
+        holidays = set()
+        for date_str in df['date']:
+            try:
+                date = pd.to_datetime(date_str)
+                holidays.add(date.strftime('%Y-%m-%d'))
+            except:
+                logger.warning(f"Invalid date format: {date_str}")
+        
+        logger.info(f"Loaded {len(holidays)} holidays from {filepath}")
+        return holidays
+        
+    except Exception as e:
+        logger.error(f"Error loading holiday file: {str(e)}")
+        logger.error(traceback.format_exc())
+        return set()
+
+# 전역 변수로 휴일 집합 관리
+holidays = load_holidays_from_file()
+
+def is_holiday(date):
+    """주어진 날짜가 휴일인지 확인하는 함수"""
+    date_str = format_date(date, '%Y-%m-%d')
+    return date_str in holidays
+
+# 휴일 정보 업데이트 함수
+def update_holidays(filepath=None):
+    """휴일 정보를 재로드하는 함수"""
+    global holidays
+    holidays = load_holidays_from_file(filepath)
+    return holidays
+
 # TimeSeriesDataset 및 평가 메트릭스
 class TimeSeriesDataset(Dataset):
     def __init__(self, X, y, device, prev_values=None):
@@ -523,10 +606,10 @@ def get_semimonthly_date_range(semimonthly_period):
     return start_date, end_date
 
 # 4. 다음 반월의 모든 날짜 목록 생성 함수
-# 수정 후
 def get_next_semimonthly_dates(current_date, original_df):
     """
     현재 날짜 이후의 다음 반월 기간에 속하는 모든 영업일 목록을 반환하는 함수
+    휴일(주말 및 공휴일)은 제외
     """
     # 다음 반월 기간 계산
     next_period = get_next_semimonthly_period(current_date)
@@ -534,12 +617,12 @@ def get_next_semimonthly_dates(current_date, original_df):
     # 반월 기간의 시작일과 종료일 계산
     start_date, end_date = get_semimonthly_date_range(next_period)
     
-    # 이 기간에 속하는 영업일(월~금) 선택
+    # 이 기간에 속하는 영업일(월~금, 휴일 제외) 선택
     business_days = []
     future_dates = original_df.index[original_df.index > current_date]
     
     for date in future_dates:
-        if start_date <= date <= end_date and date.weekday() < 5:
+        if start_date <= date <= end_date and date.weekday() < 5 and not is_holiday(date):
             business_days.append(date)
     
     # 날짜가 없거나 부족하면 추가 로직 - 반월 기간 내에서만 합성 날짜 생성
@@ -555,7 +638,7 @@ def get_next_semimonthly_dates(current_date, original_df):
         
         # 반월 기간 내에서만 날짜 생성
         while len(business_days) < 15 and synthetic_date <= end_date:  # 반월 기간 초과 방지
-            if synthetic_date.weekday() < 5:  # 평일만 추가
+            if synthetic_date.weekday() < 5 and not is_holiday(synthetic_date):  # 평일이고 휴일이 아닌 경우만 추가
                 business_days.append(synthetic_date)
             synthetic_date += pd.Timedelta(days=1)
         
@@ -570,6 +653,7 @@ def get_next_semimonthly_dates(current_date, original_df):
 def get_next_n_business_days(current_date, original_df, n_days=23):
     """
     현재 날짜 이후의 n_days 영업일을 반환하는 함수 - 원본 데이터에 없는 미래 날짜도 생성
+    휴일(주말 및 공휴일)은 제외
     """
     # 현재 날짜 이후의 데이터프레임에서 영업일 찾기
     future_df = original_df[original_df.index > current_date]
@@ -579,7 +663,7 @@ def get_next_n_business_days(current_date, original_df, n_days=23):
     
     # 먼저 데이터프레임에 있는 영업일 추가
     for date in future_df.index:
-        if date.weekday() < 5:  # 월~금만 선택
+        if date.weekday() < 5 and not is_holiday(date):  # 월~금이고 휴일이 아닌 경우만 선택
             business_days.append(date)
         
         if len(business_days) >= n_days:
@@ -593,11 +677,11 @@ def get_next_n_business_days(current_date, original_df, n_days=23):
         # 필요한 만큼 추가 날짜 생성
         current = last_date + pd.Timedelta(days=1)
         while len(business_days) < n_days:
-            if current.weekday() < 5:  # 월~금만 포함
+            if current.weekday() < 5 and not is_holiday(current):  # 월~금이고 휴일이 아닌 경우만 포함
                 business_days.append(current)
             current += pd.Timedelta(days=1)
     
-    logger.info(f"Generated {len(business_days)} business days, including synthetic dates after dataset limit")
+    logger.info(f"Generated {len(business_days)} business days, excluding holidays")
     return business_days
 
 # 6. 구간별 평균 가격 계산 및 점수 부여 함수
@@ -2303,6 +2387,9 @@ def train_model(features, target_col, current_date, historical_data, device, par
         logger.error(traceback.format_exc())
         raise e
     
+# generate_predictions 함수를 수정합니다.
+# 'sequence_df' 변수 정의 문제를 해결합니다.
+
 def generate_predictions(df, current_date, predict_window=23, features=None, target_col='MOPJ'):
     """예측 수행 함수"""
     try:
@@ -2445,9 +2532,11 @@ def generate_predictions(df, current_date, predict_window=23, features=None, tar
         # 최종 구매 구간 결정
         best_interval = decide_purchase_interval(interval_scores)
 
+        # 예측 결과를 DataFrame으로 변환 - 오류가 발생하는 부분을 여기서 수정
+        sequence_df = pd.DataFrame(predictions)
+
         # 성능 메트릭 계산 - 실제값이 있는 경우에만
         if any(p['Actual'] is not None for p in predictions):
-            sequence_df = pd.DataFrame(predictions)
             start_day_value = df.loc[current_date, target_col]
             metrics = compute_performance_metrics(sequence_df, start_day_value)
         else:
@@ -2489,22 +2578,29 @@ def generate_predictions(df, current_date, predict_window=23, features=None, tar
             logger.error(f"Error in attention analysis: {str(e)}")
         
         # 예측 결과 시각화
-        basic_plot_file, basic_plot_img = plot_prediction_basic(
-            sequence_df, 
-            current_date, 
-            start_day_value,
-            metrics['f1'],
-            metrics['accuracy'],
-            metrics['mape'],
-            metrics['weighted_score'],
-            save_prefix=PLOT_DIR
-        )
+        start_day_value = df.loc[current_date, target_col] if current_date in df.index else None
         
-        ma_plot_file, ma_plot_img = plot_moving_average_analysis(
-            ma_results, 
-            current_date,
-            save_prefix=MA_PLOT_DIR
-        )
+        if start_day_value is not None:
+            basic_plot_file, basic_plot_img = plot_prediction_basic(
+                sequence_df, 
+                current_date, 
+                start_day_value,
+                metrics['f1'],
+                metrics['accuracy'],
+                metrics['mape'],
+                metrics['weighted_score'],
+                save_prefix=PLOT_DIR
+            )
+            
+            ma_plot_file, ma_plot_img = plot_moving_average_analysis(
+                ma_results, 
+                current_date,
+                save_prefix=MA_PLOT_DIR
+            )
+        else:
+            logger.warning(f"Start day value not available for visualization")
+            basic_plot_file, basic_plot_img = None, None
+            ma_plot_file, ma_plot_img = None, None
 
         # 결과 리포트 생성
         report_filename = os.path.join(REPORT_DIR, f"prediction_report_{format_date(current_date, '%Y%m%d')}.txt")
@@ -2686,6 +2782,69 @@ def upload_file():
             return jsonify({'error': f'Error processing file: {str(e)}'}), 500
     
     return jsonify({'error': 'Invalid file type. Only CSV files are allowed'}), 400
+
+@app.route('/api/holidays', methods=['GET'])
+def get_holidays():
+    """휴일 목록 조회 API"""
+    return jsonify({
+        'success': True,
+        'holidays': list(holidays),
+        'count': len(holidays)
+    })
+
+@app.route('/api/holidays/upload', methods=['POST'])
+def upload_holidays():
+    """휴일 목록 파일 업로드 API"""
+    if 'file' not in request.files:
+        return jsonify({'error': 'No file part'}), 400
+        
+    file = request.files['file']
+    if file.filename == '':
+        return jsonify({'error': 'No selected file'}), 400
+        
+    if file and (file.filename.endswith('.csv') or file.filename.endswith('.xlsx')):
+        try:
+            # 임시 파일명 생성
+            filename = secure_filename(f"holidays_{int(time.time())}{os.path.splitext(file.filename)[1]}")
+            filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+            
+            # 파일 저장
+            file.save(filepath)
+            
+            # 휴일 정보 업데이트
+            new_holidays = update_holidays(filepath)
+            
+            # 원본 파일을 모델 디렉토리로 복사 (standard location)
+            permanent_path = os.path.join('models', 'holidays' + os.path.splitext(file.filename)[1])
+            shutil.copy2(filepath, permanent_path)
+            
+            return jsonify({
+                'success': True,
+                'message': f'Successfully uploaded and loaded {len(new_holidays)} holidays',
+                'filepath': permanent_path,
+                'filename': os.path.basename(permanent_path),
+                'holidays': list(new_holidays)
+            })
+        except Exception as e:
+            logger.error(f"Error during holiday file upload: {str(e)}")
+            logger.error(traceback.format_exc())
+            return jsonify({'error': f'Error processing file: {str(e)}'}), 500
+    
+    return jsonify({'error': 'Invalid file type. Only CSV and Excel files are allowed'}), 400
+
+@app.route('/api/holidays/reload', methods=['POST'])
+def reload_holidays():
+    """휴일 목록 재로드 API"""
+    filepath = request.json.get('filepath')
+    
+    # 기본 파일 또는 지정된 파일로부터 재로드
+    new_holidays = update_holidays(filepath)
+    
+    return jsonify({
+        'success': True,
+        'message': f'Successfully reloaded {len(new_holidays)} holidays',
+        'holidays': list(new_holidays)
+    })
 
 @app.route('/api/file/metadata', methods=['GET'])
 def get_file_metadata():
