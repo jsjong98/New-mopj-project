@@ -1,9 +1,67 @@
+# Python 캐시 및 컴파일된 파일
 __pycache__/
 *.py[cod]
 *$py.class
 *.so
-.env
+*.pyc
+
+# 가상환경
 venv/
 ENV/
+env/
+.venv/
+
+# 로그 파일
+*.log
+logs/
 app.log
-*.pyc
+
+# 환경 변수 파일
+.env
+.env.*
+
+# 개발 도구
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# IDE 설정
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS 파일
+.DS_Store
+Thumbs.db
+
+# 임시 파일
+temp/
+*.tmp
+*.temp
+
+# Git
+.git/
+.gitignore
+
+# Docker 관련
+Dockerfile*
+docker-compose*
+.dockerignore
+
+# 캐시 및 업로드 (런타임에 생성)
+cache/
+uploads/
+static/plots/
+static/reports/
+static/ma_plots/
+static/attention/
+models/
+
+# README 파일 (문서는 포함하지 않음)
+README.md
