@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import Modal from 'react-modal';
 
 // Modal 컴포넌트 설정
@@ -120,17 +120,59 @@ const AttentionMap = ({ imageData }) => {
   const [zoomLevel, setZoomLevel] = useState(100);
   const [modalZoomLevel, setModalZoomLevel] = useState(100);
 
+  // 🔍 디버깅 로그 추가
+  useEffect(() => {
+    console.log('🖼️ [ATTENTION_DEBUG] AttentionMap props changed:', {
+      hasImageData: !!imageData,
+      imageDataType: typeof imageData,
+      imageDataLength: imageData ? imageData.length : 0,
+      imageDataStart: imageData ? imageData.substring(0, 50) + '...' : 'null',
+      timestamp: new Date().toISOString()
+    });
+  }, [imageData]);
+
   if (!imageData) {
+    console.log('🖼️ [ATTENTION_DEBUG] No image data provided');
     return (
       <div style={styles.noDataContainer}>
-        <p style={styles.noDataText}>어텐션 맵 데이터가 없습니다</p>
+        <div style={{ textAlign: 'center', color: '#6b7280' }}>
+          <p style={styles.noDataText}>📊 어텐션 맵 데이터가 없습니다</p>
+          <p style={{ fontSize: '0.875rem', marginTop: '0.5rem' }}>
+            예측을 실행하거나 위의 '새로고침' 버튼을 클릭해주세요.
+          </p>
+        </div>
       </div>
     );
   }
 
+  // 🔍 data URI 생성 로깅
+  const imageUrl = `data:image/png;base64,${imageData}`;
+  console.log('🖼️ [ATTENTION_DEBUG] Creating data URI:', {
+    originalLength: imageData.length,
+    finalLength: imageUrl.length,
+    isValidBase64: /^[A-Za-z0-9+/]*={0,2}$/.test(imageData),
+    hasValidPrefix: imageUrl.startsWith('data:image/png;base64,')
+  });
+
   const zoomIn = (setter) => setter(prev => Math.min(prev + 20, 200));
   const zoomOut = (setter) => setter(prev => Math.max(prev - 20, 60));
   const resetZoom = (setter) => setter(100);
+
+  const handleImageLoad = (e) => {
+    console.log('🖼️ [ATTENTION_DEBUG] Image loaded successfully:', {
+      naturalWidth: e.target.naturalWidth,
+      naturalHeight: e.target.naturalHeight,
+      src: e.target.src.substring(0, 50) + '...'
+    });
+  };
+
+  const handleImageError = (e) => {
+    console.error('🖼️ [ATTENTION_DEBUG] Image load error:', {
+      error: e,
+      src: e.target.src.substring(0, 100) + '...',
+      timestamp: new Date().toISOString()
+    });
+  };
 
   return (
     <div style={styles.container}>
@@ -140,13 +182,15 @@ const AttentionMap = ({ imageData }) => {
       >
         <div style={styles.clickHint}>클릭하여 크게 보기</div>
         <img 
-          src={`data:image/png;base64,${imageData}`} 
+          src={imageUrl}
           alt="Feature Importance" 
           style={{
             ...styles.image,
             width: `${zoomLevel}%`,
             transformOrigin: 'center center'
           }}
+          onLoad={handleImageLoad}
+          onError={handleImageError}
         />
       </div>
 
@@ -245,12 +289,14 @@ const AttentionMap = ({ imageData }) => {
             width: '100%'
           }}>
             <img 
-              src={`data:image/png;base64,${imageData}`} 
+              src={imageUrl}
               alt="Feature Importance (확대)" 
               style={{
                 ...styles.modalImage,
                 width: `${modalZoomLevel}%`
               }}
+              onLoad={handleImageLoad}
+              onError={handleImageError}
             />
           </div>
         </div>
