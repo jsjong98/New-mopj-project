@@ -2,7 +2,7 @@
 import axios from 'axios';
 
 // 백엔드 URL 직접 지정
-const API_BASE_URL = 'http://localhost:5000/api';
+const API_BASE_URL = '/api';
 
 // API 클라이언트 생성
 const apiClient = axios.create({
