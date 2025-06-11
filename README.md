@@ -213,4 +213,4 @@ New-mopj-project-main/
 
 ---
 
-**© 2024 MOPJ 가격 예측 시스템. All rights reserved.**
+**© 2025 MOPJ 가격 예측 시스템. All rights reserved.**
