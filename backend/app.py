@@ -5798,53 +5798,89 @@ def clean_cached_predictions(predictions):
     return cleaned_predictions
 
 def clean_interval_scores_safe(interval_scores):
-    """구간 점수를 안전하게 정리하는 함수"""
+    """구간 점수를 안전하게 정리하는 함수 - 강화된 오류 처리"""
     cleaned_interval_scores = []
     
     try:
-        if isinstance(interval_scores, dict):
-            for key, value in interval_scores.items():
-                if isinstance(value, dict):
-                    cleaned_score = {}
-                    for k, v in value.items():
-                        # 배열이나 복잡한 타입은 특별 처리
-                        if isinstance(v, (np.ndarray, pd.Series, list)):
-                            if len(v) == 1:
-                                cleaned_score[k] = safe_serialize_value(v[0])
-                            elif len(v) == 0:
-                                cleaned_score[k] = None
-                            else:
-                                # 다중 원소 배열은 문자열로 변환
-                                cleaned_score[k] = str(v)
-                        else:
-                            cleaned_score[k] = safe_serialize_value(v)
-                    cleaned_interval_scores.append(cleaned_score)
-                else:
-                    # dict가 아닌 경우 안전하게 처리
-                    cleaned_interval_scores.append(safe_serialize_value(value))
-        elif isinstance(interval_scores, list):
-            for score in interval_scores:
-                if isinstance(score, dict):
-                    cleaned_score = {}
-                    for k, v in score.items():
-                        # 배열이나 복잡한 타입은 특별 처리
-                        if isinstance(v, (np.ndarray, pd.Series, list)):
-                            if len(v) == 1:
-                                cleaned_score[k] = safe_serialize_value(v[0])
-                            elif len(v) == 0:
-                                cleaned_score[k] = None
-                            else:
-                                cleaned_score[k] = str(v)
-                        else:
-                            cleaned_score[k] = safe_serialize_value(v)
-                    cleaned_interval_scores.append(cleaned_score)
-                else:
-                    cleaned_interval_scores.append(safe_serialize_value(score))
+        # 입력값 검증
+        if interval_scores is None:
+            logger.info("📋 interval_scores is None, returning empty list")
+            return []
         
+        if not isinstance(interval_scores, (dict, list)):
+            logger.warning(f"⚠️ interval_scores is not dict or list: {type(interval_scores)}")
+            return []
+        
+        if isinstance(interval_scores, dict):
+            if not interval_scores:  # 빈 dict
+                logger.info("📋 interval_scores is empty dict, returning empty list")
+                return []
+                
+            for key, value in interval_scores.items():
+                try:
+                    if isinstance(value, dict):
+                        cleaned_score = {}
+                        for k, v in value.items():
+                            try:
+                                # 배열이나 복잡한 타입은 특별 처리
+                                if isinstance(v, (np.ndarray, pd.Series, list)):
+                                    if hasattr(v, '__len__') and len(v) == 1:
+                                        cleaned_score[k] = safe_serialize_value(v[0])
+                                    elif hasattr(v, '__len__') and len(v) == 0:
+                                        cleaned_score[k] = None
+                                    else:
+                                        # 다중 원소 배열은 문자열로 변환
+                                        cleaned_score[k] = str(v)
+                                else:
+                                    cleaned_score[k] = safe_serialize_value(v)
+                            except Exception as inner_e:
+                                logger.warning(f"⚠️ Error processing key {k}: {str(inner_e)}")
+                                cleaned_score[k] = None
+                        cleaned_interval_scores.append(cleaned_score)
+                    else:
+                        # dict가 아닌 경우 안전하게 처리
+                        cleaned_interval_scores.append(safe_serialize_value(value))
+                except Exception as value_e:
+                    logger.warning(f"⚠️ Error processing interval_scores key {key}: {str(value_e)}")
+                    continue
+                    
+        elif isinstance(interval_scores, list):
+            if not interval_scores:  # 빈 list
+                logger.info("📋 interval_scores is empty list, returning empty list")
+                return []
+                
+            for i, score in enumerate(interval_scores):
+                try:
+                    if isinstance(score, dict):
+                        cleaned_score = {}
+                        for k, v in score.items():
+                            try:
+                                # 배열이나 복잡한 타입은 특별 처리
+                                if isinstance(v, (np.ndarray, pd.Series, list)):
+                                    if hasattr(v, '__len__') and len(v) == 1:
+                                        cleaned_score[k] = safe_serialize_value(v[0])
+                                    elif hasattr(v, '__len__') and len(v) == 0:
+                                        cleaned_score[k] = None
+                                    else:
+                                        cleaned_score[k] = str(v)
+                                else:
+                                    cleaned_score[k] = safe_serialize_value(v)
+                            except Exception as inner_e:
+                                logger.warning(f"⚠️ Error processing score[{i}].{k}: {str(inner_e)}")
+                                cleaned_score[k] = None
+                        cleaned_interval_scores.append(cleaned_score)
+                    else:
+                        cleaned_interval_scores.append(safe_serialize_value(score))
+                except Exception as score_e:
+                    logger.warning(f"⚠️ Error processing interval_scores[{i}]: {str(score_e)}")
+                    continue
+        
+        logger.info(f"✅ Successfully cleaned {len(cleaned_interval_scores)} interval scores")
         return cleaned_interval_scores
         
     except Exception as e:
-        logger.error(f"Error cleaning interval scores: {str(e)}")
+        logger.error(f"❌ Critical error cleaning interval scores: {str(e)}")
+        logger.error(traceback.format_exc())
         return []
 
 def convert_to_legacy_format(predictions_data):
@@ -6465,9 +6501,23 @@ def get_prediction_results_compatible():
             for key, value in metrics.items():
                 cleaned_metrics[key] = safe_serialize_value(value)
         
-        # 구간 점수 안전 정리
+        # 구간 점수 안전 정리 - 오류 방지 강화
         interval_scores = prediction_state['latest_interval_scores'] or []
-        cleaned_interval_scores = clean_interval_scores_safe(interval_scores)
+        
+        # interval_scores 데이터 타입 검증 및 안전 처리
+        if interval_scores is None:
+            interval_scores = []
+        elif not isinstance(interval_scores, (list, dict)):
+            logger.warning(f"⚠️ Unexpected interval_scores type: {type(interval_scores)}, converting to empty list")
+            interval_scores = []
+        elif isinstance(interval_scores, dict) and not interval_scores:
+            interval_scores = []
+        
+        try:
+            cleaned_interval_scores = clean_interval_scores_safe(interval_scores)
+        except Exception as interval_error:
+            logger.error(f"❌ Error cleaning interval_scores: {str(interval_error)}")
+            cleaned_interval_scores = []
         
         # MA 결과 정리 및 필요시 재계산
         ma_results = prediction_state['latest_ma_results'] or {}
@@ -6677,24 +6727,55 @@ def get_plots():
 
 @app.route('/api/results/interval-scores', methods=['GET'])
 def get_interval_scores():
-    """구간 점수 조회 API"""
+    """구간 점수 조회 API - 강화된 오류 처리"""
     global prediction_state
     
-    if prediction_state['latest_interval_scores'] is None:
-        return jsonify({'error': 'No interval scores available'}), 404
-    
-    # prediction_state['latest_interval_scores']가 dict인 경우 값을 배열로 변환,
-    # 이미 배열이면 그대로 사용
-    if isinstance(prediction_state['latest_interval_scores'], dict):
-        interval_scores = list(prediction_state['latest_interval_scores'].values())
-    else:
-        interval_scores = prediction_state['latest_interval_scores']
-    
-    return jsonify({
-        'success': True,
-        'current_date': prediction_state['current_date'],
-        'interval_scores': interval_scores
-    })
+    try:
+        # interval_scores 안전 처리
+        raw_interval_scores = prediction_state.get('latest_interval_scores')
+        
+        if raw_interval_scores is None:
+            return jsonify({'error': 'No interval scores available'}), 404
+        
+        # 데이터 타입 검증 및 안전 변환
+        interval_scores = []
+        
+        if isinstance(raw_interval_scores, dict):
+            if not raw_interval_scores:  # 빈 dict
+                interval_scores = []
+            else:
+                try:
+                    # dict의 values()를 안전하게 list로 변환
+                    interval_scores = list(raw_interval_scores.values())
+                except Exception as dict_error:
+                    logger.error(f"❌ Error converting dict interval_scores: {str(dict_error)}")
+                    interval_scores = []
+        elif isinstance(raw_interval_scores, list):
+            interval_scores = raw_interval_scores
+        else:
+            logger.warning(f"⚠️ Unexpected interval_scores type: {type(raw_interval_scores)}")
+            interval_scores = []
+        
+        # 추가 안전성 검사
+        try:
+            cleaned_interval_scores = clean_interval_scores_safe(interval_scores)
+        except Exception as clean_error:
+            logger.error(f"❌ Error cleaning interval_scores: {str(clean_error)}")
+            cleaned_interval_scores = []
+        
+        return jsonify({
+            'success': True,
+            'current_date': safe_serialize_value(prediction_state.get('current_date')),
+            'interval_scores': cleaned_interval_scores
+        })
+        
+    except Exception as e:
+        logger.error(f"❌ Error in get_interval_scores API: {str(e)}")
+        logger.error(traceback.format_exc())
+        return jsonify({
+            'success': False,
+            'error': f'Error retrieving interval scores: {str(e)}'
+        }), 500
 
 @app.route('/api/results/moving-averages', methods=['GET'])
 def get_moving_averages():
