@@ -92,6 +92,12 @@ const calendarStyles = {
     color: '#16a34a',
     border: '1px solid #4ade80'
   },
+  semimonthlyStart: {
+    backgroundColor: '#fef3c7',
+    color: '#f59e0b',
+    border: '2px solid #f59e0b',
+    fontWeight: '600'
+  },
   badge: {
     position: 'absolute',
     bottom: '0.125rem',
@@ -193,6 +199,21 @@ const CalendarDatePicker = ({
     return holiday ? holiday.source : null;
   };
 
+  // 반월 시작일 체크 함수
+  const isSemimonthlyStart = (date) => {
+    const day = date.getDate();
+    return day === 1 || day === 16;
+  };
+
+  // 예측 가능한 날짜에서 반월 시작일인지 체크
+  const isSemimonthlyStartDate = (dateKey) => {
+    const dateInfo = availableDates.find(item => {
+      const itemDateKey = typeof item === 'string' ? item : item.startDate || item.date;
+      return itemDateKey === dateKey;
+    });
+    return dateInfo && dateInfo.isSemimonthlyStart;
+  };
+
   // 달력에 표시할 모든 날짜 생성
   const generateCalendarDays = () => {
     const days = [];
@@ -266,6 +287,7 @@ const CalendarDatePicker = ({
     const isSelected = selectedDate === dateKey;
     const holidayInfo = isHoliday(dateKey);
     const holidayType = getHolidayType(dateKey);
+    const isSemimonthlyStartAvailable = isSemimonthlyStartDate(dateKey);
     
     let style = { ...calendarStyles.dayCell };
     
@@ -281,7 +303,12 @@ const CalendarDatePicker = ({
         style = { ...style, ...calendarStyles.holidayDay };
       }
     } else if (isAvailable) {
-      style = { ...style, ...calendarStyles.availableDay };
+      // 예측 가능한 날짜 중에서 반월 시작일은 특별히 표시
+      if (isSemimonthlyStartAvailable) {
+        style = { ...style, ...calendarStyles.semimonthlyStart };
+      } else {
+        style = { ...style, ...calendarStyles.availableDay };
+      }
     } else {
       style = { ...style, ...calendarStyles.unavailableDay };
     }
@@ -434,6 +461,14 @@ const CalendarDatePicker = ({
                 backgroundColor: '#bae6fd'
               }}></div>
               <span>예측 가능</span>
+            </div>
+            <div style={calendarStyles.legendItem}>
+              <div style={{
+                ...calendarStyles.legendColor,
+                backgroundColor: '#f59e0b',
+                border: '1px solid #f59e0b'
+              }}></div>
+              <span>반월 시작일</span>
             </div>
             <div style={calendarStyles.legendItem}>
               <div style={{
