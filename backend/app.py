@@ -5130,9 +5130,13 @@ def check_existing_prediction(current_date):
         first_prediction_date = next_date
         date_str = first_prediction_date.strftime('%Y%m%d')
         
+        # 반월 정보 계산 (캐시 정확성을 위해)
+        current_semimonthly = get_semimonthly_period(current_date)
+        
         logger.info(f"🔍 Checking cache for prediction starting: {first_prediction_date.strftime('%Y-%m-%d')}")
         logger.info(f"  📅 Data end date: {current_date.strftime('%Y-%m-%d')}")
         logger.info(f"  📅 Expected prediction start: {first_prediction_date.strftime('%Y-%m-%d')}")
+        logger.info(f"  📅 Current semimonthly period: {current_semimonthly}")
         logger.info(f"  📄 Expected filename pattern: prediction_start_{date_str}.*")
         
         # 🎯 1단계: 현재 파일의 캐시 디렉토리에서 정확한 날짜 매치로 캐시 찾기
@@ -5169,16 +5173,41 @@ def check_existing_prediction(current_date):
                 logger.info(f"    {i+1}. {pf.name}")
             
             if prediction_files:
-                # 가장 최근 예측 사용 (임시 방편)
-                latest_file = max(prediction_files, key=lambda x: x.stem)
-                cached_date_str = latest_file.stem.replace('prediction_start_', '').replace('_meta', '')
-                cached_prediction_date = pd.to_datetime(cached_date_str, format='%Y%m%d')
+                # 반월 기간 매칭하는 캐시 찾기
+                compatible_cache = None
                 
-                logger.info(f"🎯 Found compatible prediction in file directory!")
-                logger.info(f"  📅 Cached prediction date: {cached_prediction_date.strftime('%Y-%m-%d')}")
-                logger.info(f"  📄 Using file: {latest_file.name}")
+                for meta_file in prediction_files:
+                    try:
+                        with open(meta_file, 'r', encoding='utf-8') as f:
+                            meta_data = json.load(f)
+                        
+                        cached_data_end_date = meta_data.get('data_end_date')
+                        if cached_data_end_date:
+                            cached_data_end_date = pd.to_datetime(cached_data_end_date)
+                            cached_semimonthly = get_semimonthly_period(cached_data_end_date)
+                            
+                            logger.info(f"    🔍 Checking file cache: {meta_file.name}")
+                            logger.info(f"      📅 Current semimonthly: {current_semimonthly}")
+                            logger.info(f"      📅 Cached semimonthly:  {cached_semimonthly}")
+                            
+                            if cached_semimonthly == current_semimonthly:
+                                cached_date_str = meta_file.stem.replace('prediction_start_', '').replace('_meta', '')
+                                cached_prediction_date = pd.to_datetime(cached_date_str, format='%Y%m%d')
+                                
+                                logger.info(f"🎯 Found compatible prediction in file directory!")
+                                logger.info(f"  📅 Cached prediction date: {cached_prediction_date.strftime('%Y-%m-%d')}")
+                                logger.info(f"  📅 Semimonthly period match: {current_semimonthly}")
+                                logger.info(f"  📄 Using file: {meta_file.name}")
+                                
+                                return load_prediction_with_attention_from_csv_in_dir(cached_prediction_date, file_predictions_dir)
+                            else:
+                                logger.info(f"    ❌ Semimonthly period mismatch - skipping")
+                                
+                    except Exception as e:
+                        logger.debug(f"    ⚠️ Error reading meta file {meta_file}: {str(e)}")
+                        continue
                 
-                return load_prediction_with_attention_from_csv_in_dir(cached_prediction_date, file_predictions_dir)
+                logger.info("❌ No compatible cache found in file directory (semimonthly mismatch)")
         else:
             logger.warning(f"❌ Predictions directory does not exist: {file_predictions_dir}")
         
@@ -5228,13 +5257,28 @@ def check_existing_prediction(current_date):
                     logger.info(f"      📝 Cached file hash:  {cached_file_hash[:12] if cached_file_hash else 'None'}...")
                     
                     if cached_file_hash and cached_file_hash == current_file_hash:
-                        # 동일한 파일 내용에서 생성된 예측 발견
+                        # 동일한 파일 내용에서 생성된 예측 발견 - 반월 정보 추가 확인
                         cached_date_str = meta_file.stem.replace('prediction_start_', '').replace('_meta', '')
                         cached_prediction_date = pd.to_datetime(cached_date_str, format='%Y%m%d')
+                        
+                        # 🔑 중요: 반월 기간 비교 - 다른 반월이면 캐시 사용하지 않음
+                        cached_data_end_date = meta_data.get('data_end_date')
+                        if cached_data_end_date:
+                            cached_data_end_date = pd.to_datetime(cached_data_end_date)
+                            cached_semimonthly = get_semimonthly_period(cached_data_end_date)
+                            
+                            logger.info(f"      📅 Current semimonthly: {current_semimonthly}")
+                            logger.info(f"      📅 Cached semimonthly:  {cached_semimonthly}")
+                            
+                            if cached_semimonthly != current_semimonthly:
+                                logger.info(f"    ❌ Semimonthly period mismatch - skipping cache")
+                                logger.info(f"      📅 Different periods: {current_semimonthly} vs {cached_semimonthly}")
+                                continue
                         
                         logger.info(f"🎯 Found compatible prediction cache in other directory!")
                         logger.info(f"  📁 Directory: {file_dir.name}")
                         logger.info(f"  📅 Cached prediction date: {cached_prediction_date.strftime('%Y-%m-%d')}")
+                        logger.info(f"  📅 Semimonthly period match: {current_semimonthly}")
                         logger.info(f"  📝 File hash match: {cached_file_hash[:12]}...")
                         
                         return load_prediction_with_attention_from_csv_in_dir(cached_prediction_date, other_predictions_dir)
@@ -7601,6 +7645,75 @@ def rebuild_predictions_index_api():
         logger.error(f"❌ Error rebuilding predictions index: {str(e)}")
         logger.error(traceback.format_exc())
         return jsonify({'success': False, 'error': f'인덱스 재생성 중 오류 발생: {str(e)}'})
+
+@app.route('/api/cache/clear/semimonthly', methods=['POST'])
+def clear_semimonthly_cache():
+    """특정 반월 기간의 캐시만 삭제하는 API"""
+    try:
+        data = request.json
+        target_date = data.get('date')
+        
+        if not target_date:
+            return jsonify({'error': 'Date parameter is required'}), 400
+        
+        target_date = pd.to_datetime(target_date)
+        target_semimonthly = get_semimonthly_period(target_date)
+        
+        logger.info(f"🗑️ [API] Clearing cache for semimonthly period: {target_semimonthly}")
+        
+        # 현재 파일의 캐시 디렉토리에서 해당 반월 캐시 삭제
+        cache_dirs = get_file_cache_dirs()
+        predictions_dir = cache_dirs['predictions']
+        
+        deleted_files = []
+        
+        if predictions_dir.exists():
+            # 메타 파일 확인하여 반월 기간이 일치하는 캐시 삭제
+            for meta_file in predictions_dir.glob("*_meta.json"):
+                try:
+                    with open(meta_file, 'r', encoding='utf-8') as f:
+                        meta_data = json.load(f)
+                    
+                    cached_data_end_date = meta_data.get('data_end_date')
+                    if cached_data_end_date:
+                        cached_data_end_date = pd.to_datetime(cached_data_end_date)
+                        cached_semimonthly = get_semimonthly_period(cached_data_end_date)
+                        
+                        if cached_semimonthly == target_semimonthly:
+                            # 관련 파일들 삭제
+                            base_name = meta_file.stem.replace('_meta', '')
+                            files_to_delete = [
+                                meta_file,
+                                meta_file.parent / f"{base_name}.csv",
+                                meta_file.parent / f"{base_name}_attention.json",
+                                meta_file.parent / f"{base_name}_ma.json"
+                            ]
+                            
+                            for file_path in files_to_delete:
+                                if file_path.exists():
+                                    file_path.unlink()
+                                    deleted_files.append(str(file_path.name))
+                                    logger.info(f"  🗑️ Deleted: {file_path.name}")
+                            
+                except Exception as e:
+                    logger.warning(f"⚠️ Error processing meta file {meta_file}: {str(e)}")
+                    continue
+        
+        return jsonify({
+            'success': True,
+            'message': f'Cache cleared for semimonthly period: {target_semimonthly}',
+            'target_semimonthly': target_semimonthly,
+            'target_date': target_date.strftime('%Y-%m-%d'),
+            'deleted_files': deleted_files,
+            'deleted_count': len(deleted_files)
+        })
+        
+    except Exception as e:
+        logger.error(f"❌ [API] Error clearing semimonthly cache: {str(e)}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
 
 # 메인 실행 부분 업데이트
 if __name__ == '__main__':
