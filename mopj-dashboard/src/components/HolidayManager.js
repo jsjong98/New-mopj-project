@@ -96,7 +96,19 @@ const HolidayManager = () => {
               <div className="holiday-list">
                 {holidays.map((holiday, index) => (
                   <div key={index} className="holiday-item">
-                    {holiday}
+                    {typeof holiday === 'object' ? (
+                      <div>
+                        <div className="holiday-date">{holiday.date}</div>
+                        {holiday.description && (
+                          <div className="holiday-description">{holiday.description}</div>
+                        )}
+                        {holiday.source && (
+                          <div className="holiday-source">출처: {holiday.source}</div>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="holiday-date">{holiday}</div>
+                    )}
                   </div>
                 ))}
               </div>
