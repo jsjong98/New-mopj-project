@@ -303,4 +303,4 @@ FLASK_ENV=development docker-compose up
 ```
 
 ---
-© 2024 MOPJ 가격 예측 시스템 
+© 2025 MOPJ 가격 예측 시스템 
