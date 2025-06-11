@@ -6237,8 +6237,8 @@ def get_available_dates():
         logger.info(f"🎯 Next semimonthly period: {next_semimonthly}")
         logger.info(f"🚀 Prediction start threshold: {prediction_start_threshold.strftime('%Y-%m-%d')}")
         
-        # 🔧 모든 데이터 날짜를 예측 가능한 날짜로 설정 (50% 필터링 제거)
-        predictable_dates = df['Date']
+        # 🔧 50% 지점 이후만 예측 가능한 날짜로 설정
+        predictable_dates = df.iloc[halfway_index:]['Date']
         
         # 예측 가능한 모든 날짜를 내림차순으로 반환 (최신 날짜부터)
         # days_limit보다 작은 경우에만 제한 적용
