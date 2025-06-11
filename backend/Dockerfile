@@ -27,18 +27,20 @@ RUN apt-get update \
 # 1) pip/​setuptools/​wheel 최신화
 RUN pip install --no-cache-dir --upgrade pip setuptools wheel
 
-# 2) Conda로 과학 스택 설치 (C-API 버전 충돌 방지)
+# 2) 주요 과학 스택을 conda로 설치 (C-API 버전 충돌 방지)
 RUN conda install -y \
-      numpy=1.24 \
-      pandas=1.5 \
-      scikit-learn=1.2 \
-      matplotlib=3.7 \
-      seaborn=0.13 \
+      numpy=1.24.3 \
+      pandas=2.1.1 \
+      scikit-learn=1.3.0 \
+      matplotlib=3.7.2 \
+      seaborn=0.12.2 \
+      python-dateutil=2.8.2 \
+      pytz=2023.3 \
  && conda clean -afy
 
-# 3) 순수 Python 패키지 설치
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+# 3) Docker 전용 requirements로 나머지 패키지 설치
+COPY requirements-docker.txt .
+RUN pip install --no-cache-dir -r requirements-docker.txt
 
 # 애플리케이션 코드 복사
 COPY . .
