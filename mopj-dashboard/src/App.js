@@ -26,7 +26,8 @@ import {
   checkCachedPredictions,
   clearAccumulatedCache,
   getRecentAccumulatedResults,
-  getHolidays
+  getHolidays,
+  getAttentionMap
 } from './services/api';
 
 // Helper 함수들 (예측 시작일 방식) - 수정됨
@@ -36,12 +37,7 @@ const isHoliday = (dateString, holidays) => {
   return holidays.some(holiday => holiday.date === dateString);
 };
 
-// 영업일 체크 함수
-const isBusinessDay = (dateString, holidays) => {
-  const date = new Date(dateString + 'T00:00:00');
-  const dayOfWeek = date.getDay(); // 0=일요일, 6=토요일
-  return dayOfWeek >= 1 && dayOfWeek <= 5 && !isHoliday(dateString, holidays);
-};
+// ✅ isBusinessDay 함수 제거 (사용되지 않음)
 
 const getNextBusinessDay = (dateString, holidays = []) => {
   // UTC 기준으로 날짜 생성하여 타임존 이슈 방지
@@ -71,25 +67,7 @@ const formatDateYMD = (date) => {
   return `${year}-${month}-${day}`;
 };
 
-const getPreviousBusinessDay = (dateString) => {
-  // UTC 기준으로 날짜 생성하여 타임존 이슈 방지
-  const [year, month, day] = dateString.split('-').map(Number);
-  const date = new Date(year, month - 1, day); // month는 0-based
-  
-  date.setDate(date.getDate() - 1);
-  
-  // 주말이면 이전 금요일까지 이동
-  // 0=일요일, 6=토요일
-  while (date.getDay() === 0 || date.getDay() === 6) {
-    date.setDate(date.getDate() - 1);
-  }
-  
-  // YYYY-MM-DD 형식으로 반환
-  const year2 = date.getFullYear();
-  const month2 = String(date.getMonth() + 1).padStart(2, '0');
-  const day2 = String(date.getDate()).padStart(2, '0');
-  return `${year2}-${month2}-${day2}`;
-};
+// ✅ getPreviousBusinessDay 함수 제거 (사용되지 않음)
 
 const formatDate = (dateString) => {
   // 타임존 이슈 방지를 위해 로컬 날짜로 파싱
@@ -112,25 +90,7 @@ const isSemimonthlyStart = (dateString) => {
   return day === 1 || day === 16;
 };
 
-// 다음 반월 시작일을 찾는 함수
-const getNextSemimonthlyStart = (dateString) => {
-  const [year, month, day] = dateString.split('-').map(Number);
-  const date = new Date(year, month - 1, day);
-  
-  if (day <= 16) {
-    // 16일로 이동
-    date.setDate(16);
-  } else {
-    // 다음 달 1일로 이동
-    date.setMonth(date.getMonth() + 1);
-    date.setDate(1);
-  }
-  
-  const year2 = date.getFullYear();
-  const month2 = String(date.getMonth() + 1).padStart(2, '0');
-  const day2 = String(date.getDate()).padStart(2, '0');
-  return `${year2}-${month2}-${day2}`;
-};
+// ✅ getNextSemimonthlyStart 함수 제거 (사용되지 않음)
 
 // 예측 가능한 시작일 목록 생성 (데이터의 50% 지점부터, 반월 기준 우선)
 const generatePredictableStartDates = (dataDatesList, holidays = []) => {
@@ -316,6 +276,12 @@ const App = () => {
     };
     
     loadHolidays();
+  }, []);
+
+  // ✅ 페이지 로드시 자동으로 attention map 로딩 시도
+  useEffect(() => {
+    console.log('🚀 [INIT] Page loaded, trying to auto-load attention map...');
+    loadAttentionMapAuto();
   }, []);
 
   // 페이지 로드 시 최근 누적 예측 결과 자동 복원 - 비활성화
@@ -629,7 +595,7 @@ const App = () => {
     }, 1000);
   };
 
-  // 단일 예측 결과 가져오기
+  // 예측 결과 가져오기
   const fetchResults = async () => {
     console.log('🔄 [FETCH] Starting fetchResults...');
     setIsLoading(true);
@@ -637,16 +603,11 @@ const App = () => {
     
     try {
       const results = await getPredictionResults();
+      console.log('📦 [FETCH] Raw results received:', results);
       
-      console.log('📦 [FETCH] Results received:', results);
-      
-      if (results.error || !results.success) {
-        console.error('❌ [FETCH] API returned error:', results.error);
-        setError(results.error || '결과를 가져오는 중 오류가 발생했습니다.');
-        return;
+      if (!results || !results.success) {
+        throw new Error(results?.error || '예측 결과가 없습니다');
       }
-      
-      console.log('✅ [FETCH] Processing successful response...');
       
       console.log('📝 [STATE] Updating states:', {
         predictions: results.predictions ? results.predictions.length : 0,
@@ -659,8 +620,36 @@ const App = () => {
       setPredictionData([...results.predictions] || []);
       setIntervalScores([...results.interval_scores] || []);
       setMaResults(results.ma_results ? {...results.ma_results} : null);
-      setAttentionImage(results.attention_data ? results.attention_data.image : null);
       setCurrentDate(results.current_date || null);
+      
+      // ✅ Attention Map 자동 로딩 - 항상 별도 API 우선 호출
+      console.log('🔄 [ATTENTION_AUTO] Auto-loading attention map...');
+      try {
+        const attentionResult = await getAttentionMap();
+        if (attentionResult.success && attentionResult.attention_data && attentionResult.attention_data.image) {
+          console.log('✅ [ATTENTION_AUTO] Successfully loaded attention map from API');
+          setAttentionImage(attentionResult.attention_data.image);
+        } else {
+          console.log('⚠️ [ATTENTION_AUTO] No attention data from API, checking main results...');
+          // 백업: 메인 결과에서 확인
+          if (results.attention_data && results.attention_data.image) {
+            console.log('✅ [ATTENTION_AUTO] Found attention data in main results');
+            setAttentionImage(results.attention_data.image);
+          } else {
+            console.log('ℹ️ [ATTENTION_AUTO] No attention data available anywhere');
+            setAttentionImage(null);
+          }
+        }
+      } catch (attErr) {
+        console.log('⚠️ [ATTENTION_AUTO] Failed to load attention map:', attErr.message);
+        // 백업: 메인 결과에서 확인
+        if (results.attention_data && results.attention_data.image) {
+          console.log('✅ [ATTENTION_AUTO] Using attention data from main results as fallback');
+          setAttentionImage(results.attention_data.image);
+        } else {
+          setAttentionImage(null);
+        }
+      }
       
       console.log('✅ [STATE] States updated successfully');
       setActiveTab('single');
@@ -718,8 +707,20 @@ const App = () => {
         
         // ✅ 구매 신뢰도 로깅
         console.log(`💰 [ACCUMULATED] Purchase reliability received: ${safeResults.accumulated_purchase_reliability}%`);
+        console.log(`🔍 [ACCUMULATED] Raw API response purchase reliability:`, results.accumulated_purchase_reliability);
+        console.log(`🔍 [ACCUMULATED] Type of purchase reliability:`, typeof results.accumulated_purchase_reliability);
+        console.log(`🔍 [ACCUMULATED] Full raw results object:`, JSON.stringify(results, null, 2));
+        
         if (safeResults.accumulated_purchase_reliability === 100) {
           console.warn('⚠️ [ACCUMULATED] Purchase reliability is 100% - this may indicate a calculation issue');
+          console.warn('⚠️ [ACCUMULATED] Debugging info:');
+          console.warn('   - Raw value:', results.accumulated_purchase_reliability);
+          console.warn('   - Processed value:', safeResults.accumulated_purchase_reliability);
+          console.warn('   - Predictions count:', safeResults.predictions?.length || 0);
+          console.warn('   - Sample prediction:', safeResults.predictions?.[0]);
+          
+          // ✅ 사용자에게 알림 표시
+          alert(`⚠️ 구매 신뢰도가 100%로 계산되었습니다.\n\n이는 다음 중 하나일 수 있습니다:\n1. 실제로 모든 예측이 최고 점수(3점)를 받은 경우\n2. 캐시된 잘못된 데이터\n3. 계산 오류\n\n해결 방법:\n- 페이지 하단의 "누적 캐시 클리어" 버튼을 클릭\n- 다시 누적 예측 실행\n- 개발자 도구 콘솔에서 상세 로그 확인`);
         }
         
         // ✅ 캐시 통계 로깅
@@ -833,23 +834,84 @@ const App = () => {
         }
         
         // 🔧 데이터 구조 변환: 백엔드 형태 → PredictionChart 형태
-        const transformedPredictions = (result.predictions || []).map(item => {
+        const transformedPredictions = (result.predictions || []).map((item, index) => {
+          // ✅ 원본 데이터 구조 확인을 위한 상세 로깅
+          if (index === 0) {
+            console.log(`🔍 [LOAD_DATE] First prediction item structure:`, item);
+            console.log(`🔍 [LOAD_DATE] Available keys in first item:`, Object.keys(item));
+            console.log(`🔍 [LOAD_DATE] Type of item:`, typeof item);
+          }
+          
+          // ✅ 문자열로 직렬화된 딕셔너리인 경우 파싱 처리
+          let actualItem = item;
+          if (typeof item === 'string' && item.startsWith('{') && item.endsWith('}')) {
+            try {
+              // eval 대신 안전한 방법으로 파싱 시도
+              const cleanedString = item
+                .replace(/Timestamp\('[^']*'\)/g, match => `"${match.slice(11, -2)}"`) // Timestamp 객체 처리
+                .replace(/'/g, '"') // 작은따옴표를 큰따옴표로 변경
+                .replace(/None/g, 'null'); // Python None을 JSON null로 변경
+              actualItem = JSON.parse(cleanedString);
+              
+              if (index === 0) {
+                console.log(`🔄 [LOAD_DATE] Parsed string to object:`, actualItem);
+              }
+            } catch (parseError) {
+              console.warn(`⚠️ [LOAD_DATE] Failed to parse prediction string at index ${index}:`, parseError);
+              // 파싱 실패 시 원본 사용
+              actualItem = item;
+            }
+          }
+          
           // ✅ 여러 가능한 필드명들을 확인하여 안전하게 변환
-          const dateValue = item.date || item.Date;
-          const predictionValue = item.prediction || item.Prediction;
-          const actualValue = item.actual || item.Actual;
+          const dateValue = actualItem.Date || actualItem.date || actualItem.prediction_date;
+          const predictionValue = actualItem.Prediction || actualItem.prediction || actualItem.predicted_value || actualItem.value;
+          const actualValue = actualItem.Actual || actualItem.actual || actualItem.actual_value;
+          
+          // ✅ 숫자 값 안전 변환
+          const safePrediction = predictionValue !== null && predictionValue !== undefined ? 
+            (typeof predictionValue === 'number' ? predictionValue : parseFloat(predictionValue)) : 0;
+          const safeActual = actualValue !== null && actualValue !== undefined && actualValue !== 'None' ? 
+            (typeof actualValue === 'number' ? actualValue : parseFloat(actualValue)) : null;
+          
+          // ✅ 각 필드별 상세 매핑 로깅 (첫 번째 아이템만)
+          if (index === 0) {
+            console.log(`🔍 [LOAD_DATE] Field mapping for first item:`, {
+              dateValue,
+              predictionValue,
+              actualValue,
+              safePrediction,
+              safeActual,
+              rawItem: actualItem
+            });
+          }
           
           return {
-            Date: dateValue,                    // 날짜 필드
-            Prediction: predictionValue,        // 예측값 필드
-            Actual: actualValue || null         // 실제값 (없으면 null)
+            Date: dateValue ? new Date(dateValue).toISOString().split('T')[0] : null,
+            Prediction: safePrediction,
+            Actual: safeActual
           };
-        });
+        }).filter(item => item.Date !== null);
+        
+        // ✅ 변환 후 데이터 검증 및 로깅
+        if (transformedPredictions.length > 0) {
+          console.log(`🔧 [LOAD_DATE] First prediction after transform:`, transformedPredictions[0]);
+          console.log(`🔧 [LOAD_DATE] Total transformed predictions:`, transformedPredictions.length);
+        }
         
         // ✅ 첫 번째와 마지막 예측 값을 로깅하여 데이터 변화 확인
         if (transformedPredictions.length > 0) {
-          console.log(`🔧 [LOAD_DATE] First prediction: ${transformedPredictions[0]?.Prediction}`);
+          console.log(`🔧 [LOAD_DATE] First prediction after transform:`, transformedPredictions[0]);
+          console.log(`🔧 [LOAD_DATE] First prediction value: ${transformedPredictions[0]?.Prediction}`);
           console.log(`🔧 [LOAD_DATE] Last prediction: ${transformedPredictions[transformedPredictions.length-1]?.Prediction}`);
+          
+          // ✅ N/A 또는 undefined 값 체크
+          const firstPred = transformedPredictions[0]?.Prediction;
+          if (firstPred === undefined || firstPred === null || isNaN(firstPred)) {
+            console.warn(`⚠️ [LOAD_DATE] First prediction value is invalid: ${firstPred} (type: ${typeof firstPred})`);
+            console.warn(`⚠️ [LOAD_DATE] Original first item keys again:`, Object.keys(result.predictions[0] || {}));
+            console.warn(`⚠️ [LOAD_DATE] Original first item values:`, result.predictions[0]);
+          }
         }
         
         console.log(`🔧 [LOAD_DATE] Transformed data sample:`, transformedPredictions[0]);
@@ -922,6 +984,44 @@ const App = () => {
     } else {
       console.warn('⚠️ [REFRESH] No file info available for refresh');
       setError('새로고침하려면 파일을 먼저 업로드해주세요.');
+    }
+  };
+
+  // ✅ Attention Map 자동 로딩 함수 (페이지 로드시 사용)
+  const loadAttentionMapAuto = async () => {
+    console.log('🔄 [ATTENTION_AUTO_LOAD] Auto-loading attention map on page load...');
+    try {
+      const attentionResult = await getAttentionMap();
+      if (attentionResult.success && attentionResult.attention_data && attentionResult.attention_data.image) {
+        console.log('✅ [ATTENTION_AUTO_LOAD] Successfully loaded attention map');
+        setAttentionImage(attentionResult.attention_data.image);
+        return true;
+      } else {
+        console.log('ℹ️ [ATTENTION_AUTO_LOAD] No attention data available');
+        return false;
+      }
+    } catch (err) {
+      console.log('⚠️ [ATTENTION_AUTO_LOAD] Error loading attention map:', err.message);
+      return false;
+    }
+  };
+
+  // ✅ Attention Map 수동 새로고침 함수 (버튼 클릭시 사용)
+  const handleRefreshAttentionMap = async () => {
+    console.log('🔄 [ATTENTION_REFRESH] Manually refreshing attention map...');
+    try {
+      const attentionResult = await getAttentionMap();
+      if (attentionResult.success && attentionResult.attention_data && attentionResult.attention_data.image) {
+        console.log('✅ [ATTENTION_REFRESH] Successfully refreshed attention map');
+        setAttentionImage(attentionResult.attention_data.image);
+      } else {
+        console.log('⚠️ [ATTENTION_REFRESH] No attention data available');
+        alert('현재 사용 가능한 Attention Map 데이터가 없습니다.');
+        setAttentionImage(null);
+      }
+    } catch (err) {
+      console.error('💥 [ATTENTION_REFRESH] Error refreshing attention map:', err);
+      alert(`Attention Map 새로고침 중 오류: ${err.message}`);
     }
   };
 
@@ -2167,13 +2267,42 @@ const App = () => {
 
                 {/* 어텐션 맵 시각화 */}
                 <div style={styles.card}>
-                  <h2 style={styles.cardTitle}>
-                    <Grid size={18} style={styles.iconStyle} />
-                    특성 중요도 시각화 (Attention Map)
-                  </h2>
+                  <div style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    marginBottom: '1rem'
+                  }}>
+                    <h2 style={styles.cardTitle}>
+                      <Grid size={18} style={styles.iconStyle} />
+                      특성 중요도 시각화 (Attention Map)
+                    </h2>
+                    <button
+                      onClick={handleRefreshAttentionMap}
+                      style={{
+                        backgroundColor: '#3b82f6',
+                        color: 'white',
+                        border: 'none',
+                        borderRadius: '0.375rem',
+                        padding: '0.5rem 1rem',
+                        fontSize: '0.875rem',
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '0.5rem'
+                      }}
+                    >
+                      🔄 새로고침
+                    </button>
+                  </div>
                   <AttentionMap imageData={attentionImage} />
                   <div style={styles.helpText}>
                     <p>* 상위 특성이 MOPJ 예측에 가장 큰 영향을 미치는 요소입니다.</p>
+                    {!attentionImage && (
+                      <p style={{ color: '#ef4444', fontSize: '0.875rem', marginTop: '0.5rem' }}>
+                        * Attention Map이 로드되지 않았습니다. 위의 '새로고침' 버튼을 클릭해주세요.
+                      </p>
+                    )}
                   </div>
                 </div>
               </div>
