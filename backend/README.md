@@ -186,4 +186,4 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 문제 발생 시 로그 파일을 확인하거나 개발팀에 문의하세요.
 
 ---
-© 2024 MOPJ 가격 예측 시스템 
+© 2025 MOPJ 가격 예측 시스템 
