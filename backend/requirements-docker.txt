@@ -1,0 +1,29 @@
+# Docker용 requirements - conda에서 설치하지 않는 패키지들만 포함
+
+# 웹 프레임워크
+flask==2.3.3
+flask-cors==4.0.0
+werkzeug==2.3.7
+
+# 하이퍼파라미터 최적화
+optuna==3.3.0
+
+# 개발 및 디버깅 (선택사항)
+jupyter==1.0.0
+ipython==8.15.0
+
+# 성능 최적화 (선택사항)
+numba==0.57.1
+
+# 데이터 검증 및 타입 힌팅 (선택사항)
+pydantic==2.3.0
+
+# 로깅 및 모니터링
+colorama==0.4.6
+
+# 파일 처리
+openpyxl==3.1.2
+xlrd==2.0.1
+
+# 주의: PyTorch, NumPy, Pandas, Scikit-learn, Matplotlib, Seaborn은 
+# conda로 설치되므로 여기에 포함하지 않음 
