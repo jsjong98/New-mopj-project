@@ -32,6 +32,7 @@ import shutil
 import optuna
 import csv
 from pathlib import Path
+import math
 
 # 경고 메시지 숨기기
 warnings.filterwarnings('ignore')
@@ -2128,6 +2129,19 @@ def load_prediction_with_attention_from_csv_in_dir(prediction_start_date, file_p
         
         predictions = predictions_df.to_dict('records')
         
+        # ✅ JSON 직렬화를 위해 Timestamp 객체들을 문자열로 안전하게 변환
+        for pred in predictions:
+            for key, value in list(pred.items()):
+                if pd.isna(value):
+                    pred[key] = None
+                elif isinstance(value, pd.Timestamp):
+                    pred[key] = value.strftime('%Y-%m-%d')
+                elif isinstance(value, (np.int64, np.float64)):
+                    # 예측값과 실제값은 모두 float로 유지
+                    pred[key] = float(value)
+                elif hasattr(value, 'item'):  # numpy scalars
+                    pred[key] = value.item()
+        
         # ✅ 캐시에서 로드할 때 실제값 다시 설정 (현재 파일 데이터 사용)
         try:
             current_file = prediction_state.get('current_file')
@@ -2177,8 +2191,12 @@ def load_prediction_with_attention_from_csv_in_dir(prediction_start_date, file_p
                     'temporal_importance': attention_raw.get('temporal_importance', {})
                 }
                 logger.info(f"  🧠 Attention data loaded successfully")
+                logger.info(f"  🧠 Image data length: {len(attention_data['image']) if attention_data['image'] else 0}")
+                logger.info(f"  🧠 Feature importance keys: {len(attention_data['feature_importance'])}")
+                logger.info(f"  🧠 Temporal importance keys: {len(attention_data['temporal_importance'])}")
             except Exception as e:
                 logger.warning(f"  ⚠️  Failed to load attention data: {str(e)}")
+                attention_data = {}
         
         # 이동평균 데이터 로드
         ma_results = {}
@@ -2255,6 +2273,19 @@ def load_prediction_with_attention_from_csv(prediction_start_date):
             predictions_df['Prediction_From'] = pd.to_datetime(predictions_df['Prediction_From'])
         
         predictions = predictions_df.to_dict('records')
+        
+        # ✅ JSON 직렬화를 위해 Timestamp 객체들을 문자열로 안전하게 변환
+        for pred in predictions:
+            for key, value in list(pred.items()):
+                if pd.isna(value):
+                    pred[key] = None
+                elif isinstance(value, pd.Timestamp):
+                    pred[key] = value.strftime('%Y-%m-%d')
+                elif isinstance(value, (np.int64, np.float64)):
+                    # 예측값과 실제값은 모두 float로 유지
+                    pred[key] = float(value)
+                elif hasattr(value, 'item'):  # numpy scalars
+                    pred[key] = value.item()
         
         # ✅ 캐시에서 로드할 때 실제값 다시 설정 (현재 파일 데이터 사용)
         try:
@@ -2870,13 +2901,35 @@ def calculate_accumulated_purchase_reliability(accumulated_predictions):
                             valid_scores.append(score_value)
                 
                 if valid_scores:
+                    # 유효한 점수들과 해당 구간 정보 분석
+                    score_details = []
+                    for score_key, score_data in interval_scores.items():
+                        if isinstance(score_data, dict) and 'score' in score_data:
+                            score_value = score_data.get('score', 0)
+                            if isinstance(score_value, (int, float)):
+                                interval_info = f"{score_data.get('start_date')} ~ {score_data.get('end_date')} ({score_data.get('days')}일)"
+                                score_details.append({
+                                    'interval': interval_info,
+                                    'score': score_value
+                                })
+                    
                     best_score = max(valid_scores)
+                    # 최고 점수를 받은 구간 정보 찾기
+                    best_interval_info = "정보없음"
+                    for detail in score_details:
+                        if detail['score'] == best_score:
+                            best_interval_info = detail['interval']
+                            break
+                    
                     # 점수가 3점을 초과하면 3점으로 제한 (3점이 만점)
                     capped_score = min(best_score, 3.0)
                     total_best_score += capped_score
                     
-                    print(f"📊 [RELIABILITY] Prediction {i+1} ({pred.get('date')}): original_score={best_score:.1f}, capped_score={capped_score:.1f}, valid_scores={len(valid_scores)}")
-                    logger.info(f"📊 날짜 {pred.get('date')}: 원본점수={best_score:.1f}, 적용점수={capped_score:.1f}")
+                    print(f"📊 [RELIABILITY] 날짜 {pred.get('date')}: 최고구간={best_interval_info}, 점수={best_score:.1f}")
+                    print(f"   - 모든 구간: {score_details}")
+                    
+                    logger.info(f"📊 날짜 {pred.get('date')}: 최고구간={best_interval_info}, 점수={best_score:.1f}")
+                    logger.info(f"📊 날짜 {pred.get('date')}: 모든구간={score_details}")
         
         # 전체 누적 구매 신뢰도 = 총 획득 점수 / (예측 횟수 × 3점)
         max_possible_total_score = prediction_count * 3
@@ -2886,11 +2939,70 @@ def calculate_accumulated_purchase_reliability(accumulated_predictions):
         else:
             reliability_percentage = 0.0
         
-        print(f"🎯 [RELIABILITY] FINAL CALCULATION:")
-        print(f"  - 예측 횟수: {prediction_count}개")
-        print(f"  - 총 획득 점수: {total_best_score:.1f}점")
-        print(f"  - 최대 가능 점수: {max_possible_total_score}점 ({prediction_count} × 3)")
-        print(f"  - 구매 신뢰도: {reliability_percentage:.1f}%")
+        # ✅ 구간 일관성 분석 추가
+        interval_count = {}  # 각 구간이 최고 점수로 선택된 횟수
+        
+        # 다시 한번 각 예측을 돌면서 최고 점수 구간 수집
+        for i, pred in enumerate(accumulated_predictions):
+            if not isinstance(pred, dict):
+                continue
+                
+            pred_date = pred.get('date')
+            interval_scores = pred.get('interval_scores', {})
+            
+            if interval_scores and isinstance(interval_scores, dict):
+                # 유효한 interval score 찾기
+                valid_scores = []
+                for score_key, score_data in interval_scores.items():
+                    if isinstance(score_data, dict) and 'score' in score_data:
+                        score_value = score_data.get('score', 0)
+                        if isinstance(score_value, (int, float)):
+                            valid_scores.append(score_value)
+                
+                if valid_scores:
+                    best_score = max(valid_scores)
+                    
+                    # 최고 점수를 받은 구간들 찾기
+                    for score_key, score_data in interval_scores.items():
+                        if isinstance(score_data, dict) and score_data.get('score') == best_score:
+                            interval_key = f"{score_data.get('start_date')} ~ {score_data.get('end_date')} ({score_data.get('days')}일)"
+                            if interval_key not in interval_count:
+                                interval_count[interval_key] = []
+                            interval_count[interval_key].append(pred_date)
+                            break  # 첫 번째 최고 점수 구간만 선택
+        
+        # 구간 일관성 분석
+        if interval_count:
+            most_common_interval = max(interval_count, key=lambda k: len(interval_count[k]))
+            max_count = len(interval_count[most_common_interval])
+            consistency_percentage = (max_count / prediction_count * 100) if prediction_count > 0 else 0
+            
+            print(f"\n🎯 [RELIABILITY] === 구간 일관성 분석 ===")
+            print(f"📊 예측 횟수: {prediction_count}개")
+            print(f"📊 구간별 선택 횟수:")
+            
+            for interval, dates in sorted(interval_count.items(), key=lambda x: len(x[1]), reverse=True):
+                count = len(dates)
+                percentage = (count / prediction_count * 100) if prediction_count > 0 else 0
+                print(f"   - {interval}: {count}회 ({percentage:.1f}%) - 날짜: {', '.join(dates)}")
+                logger.info(f"🎯 구간 선택: {interval} - {count}회 ({percentage:.1f}%)")
+            
+            print(f"\n🏆 가장 일관된 구간: {most_common_interval}")
+            print(f"🏆 구간 일관성: {max_count}/{prediction_count} = {consistency_percentage:.1f}%")
+            
+            logger.info(f"💰 [RELIABILITY] 최종 분석:")
+            logger.info(f"   - 기존 계산식: {reliability_percentage:.1f}%")
+            logger.info(f"   - 구간 일관성: {consistency_percentage:.1f}%")
+            logger.info(f"   - 가장 일관된 구간: {most_common_interval}")
+            
+            # ⚠️ 경고 메시지
+            if reliability_percentage == 100.0 and consistency_percentage < 100.0:
+                warning_msg = f"⚠️ [RELIABILITY] 기존 계산식은 100%이지만 구간 일관성은 {consistency_percentage:.1f}%입니다!"
+                logger.warning(warning_msg)
+                logger.warning(f"⚠️ [RELIABILITY] 실제 신뢰도는 구간 일관성을 반영해야 합니다.")
+                print(f"\n⚠️ WARNING: 서로 다른 구간을 추천하고 있어 실제 신뢰도는 {consistency_percentage:.1f}%입니다!")
+        
+        print(f"\n💰 기존 계산식 결과: {reliability_percentage:.1f}%")
         
         logger.info(f"🎯 올바른 구매 신뢰도 계산:")
         logger.info(f"  - 예측 횟수: {prediction_count}개")
@@ -3846,6 +3958,14 @@ def calculate_moving_averages_with_history(predictions, historical_data, target_
                 # 해당 날짜의 이동평균 값
                 ma_value = rolling_avg.loc[date] if date in rolling_avg.index else None
                 
+                # NaN 값 처리
+                if pd.isna(pred_value) or np.isnan(pred_value) or np.isinf(pred_value):
+                    pred_value = None
+                if pd.isna(actual_value) or np.isnan(actual_value) or np.isinf(actual_value):
+                    actual_value = None
+                if pd.isna(ma_value) or np.isnan(ma_value) or np.isinf(ma_value):
+                    ma_value = None
+                
                 window_results.append({
                     'date': date,
                     'prediction': pred_value,
@@ -4464,7 +4584,7 @@ def train_model(features, target_col, current_date, historical_data, device, par
         logger.error(f"Error in model training: {str(e)}")
         logger.error(traceback.format_exc())
         raise e
-    
+
 # generate_predictions 함수를 수정합니다.
 # 'sequence_df' 변수 정의 문제를 해결합니다.
 
@@ -4634,10 +4754,25 @@ def generate_predictions(df, current_date, predict_window=23, features=None, tar
                 
                 pred_value = float(pred_value)
                 
-                # 기본 예측 정보
+                # ✅ 실제 데이터 마지막 날짜 확인
+                last_data_date = df.index.max()
+                actual_value = None
+                
+                # ✅ 실제값 존재 여부 확인 및 설정
+                if (pred_date in df.index and 
+                    pd.notna(df.loc[pred_date, target_col]) and 
+                    pred_date <= last_data_date):
+                    
+                    actual_value = float(df.loc[pred_date, target_col])
+                    
+                    if np.isnan(actual_value) or np.isinf(actual_value):
+                        actual_value = None
+                
+                # 기본 예측 정보 (실제값 포함)
                 prediction_item = {
                     'date': format_date(pred_date, '%Y-%m-%d'),
                     'prediction': pred_value,
+                    'actual': actual_value,  # 🔑 실제값 항상 포함
                     'prediction_from': format_date(current_date, '%Y-%m-%d'),
                     'day_offset': j + 1,
                     'is_business_day': pred_date.weekday() < 5 and not is_holiday(pred_date),
@@ -4646,30 +4781,20 @@ def generate_predictions(df, current_date, predict_window=23, features=None, tar
                     'next_semimonthly_period': next_semimonthly_period
                 }
                 
-                # ✅ 실제 데이터 마지막 날짜 확인 (검증용)
-                last_data_date = df.index.max()
-                
-                # ✅ 검증 조건: 예측 날짜가 실제 데이터 범위 내에 있고, current_date 이후라면 검증용으로 사용
-                if (pred_date in df.index and 
-                    pd.notna(df.loc[pred_date, target_col]) and 
-                    pred_date <= last_data_date):  # 🔑 실제 데이터 범위 내에서 검증 허용
+                # ✅ 실제값이 있는 경우 검증 데이터에도 추가
+                if actual_value is not None:
+                    validation_item = {
+                        **prediction_item,
+                        'error': abs(pred_value - actual_value),
+                        'error_pct': abs(pred_value - actual_value) / actual_value * 100 if actual_value != 0 else 0.0
+                    }
+                    validation_data.append(validation_item)
                     
-                    actual_value = float(df.loc[pred_date, target_col])
-                    
-                    if not (np.isnan(actual_value) or np.isinf(actual_value)):
-                        validation_item = {
-                            **prediction_item,
-                            'actual': actual_value,
-                            'error': abs(pred_value - actual_value),
-                            'error_pct': abs(pred_value - actual_value) / actual_value * 100 if actual_value != 0 else 0.0
-                        }
-                        validation_data.append(validation_item)
-                        
-                        # 📊 검증 타입 구분 로그
-                        if pred_date <= current_date:
-                            logger.debug(f"  ✅ Training validation: {format_date(pred_date)} - Pred: {pred_value:.2f}, Actual: {actual_value:.2f}")
-                        else:
-                            logger.debug(f"  🎯 Test validation: {format_date(pred_date)} - Pred: {pred_value:.2f}, Actual: {actual_value:.2f}")
+                    # 📊 검증 타입 구분 로그
+                    if pred_date <= current_date:
+                        logger.debug(f"  ✅ Training validation: {format_date(pred_date)} - Pred: {pred_value:.2f}, Actual: {actual_value:.2f}")
+                    else:
+                        logger.debug(f"  🎯 Test validation: {format_date(pred_date)} - Pred: {pred_value:.2f}, Actual: {actual_value:.2f}")
                 elif pred_date > last_data_date:
                     logger.debug(f"  🔮 Future: {format_date(pred_date)} - Pred: {pred_value:.2f} (no actual - beyond data)")
                 
@@ -4823,8 +4948,8 @@ def generate_predictions(df, current_date, predict_window=23, features=None, tar
             try:
                 # ✅ current_date 전달 추가
                 basic_plot_file, basic_plot_img = plot_prediction_basic(
-                    temp_df_for_plot, 
-                    prediction_start_date, 
+                    temp_df_for_plot,
+                    prediction_start_date,
                     start_day_value,
                     f1_score,
                     accuracy,
@@ -5324,8 +5449,8 @@ def generate_visualizations_realtime(predictions, df, current_date, metadata):
                 metrics['mape'],
                 metrics['weighted_score'],
                 save_prefix=None  # 파일별 캐시 디렉토리 자동 사용
-            )
-            
+                )
+                
             # 이동평균 계산 및 시각화
             historical_data = df[df.index <= current_date].copy()
             ma_results = calculate_moving_averages_with_history(predictions, historical_data, target_col='MOPJ')
@@ -5623,17 +5748,27 @@ def background_prediction_simple_compatible(file_path, current_date, save_to_csv
                     
                     # 어텐션 데이터 정리
                     cleaned_attention = None
+                    logger.info(f"📊 [CACHE_ATTENTION] Processing attention data: available={bool(attention_data)}")
                     if attention_data:
+                        logger.info(f"📊 [CACHE_ATTENTION] Original keys: {list(attention_data.keys())}")
+                        
                         cleaned_attention = {}
                         for key, value in attention_data.items():
                             if key == 'image' and value:
                                 cleaned_attention[key] = value  # base64 이미지는 그대로
+                                logger.info(f"📊 [CACHE_ATTENTION] Image preserved (length: {len(value)})")
                             elif isinstance(value, dict):
                                 cleaned_attention[key] = {}
                                 for k, v in value.items():
                                     cleaned_attention[key][k] = safe_serialize_value(v)
+                                logger.info(f"📊 [CACHE_ATTENTION] Dict '{key}' processed: {len(cleaned_attention[key])} items")
                             else:
                                 cleaned_attention[key] = safe_serialize_value(value)
+                                logger.info(f"📊 [CACHE_ATTENTION] Value '{key}' processed: {type(value)}")
+                        
+                        logger.info(f"📊 [CACHE_ATTENTION] Final cleaned keys: {list(cleaned_attention.keys())}")
+                    else:
+                        logger.warning(f"📊 [CACHE_ATTENTION] No attention data in cache result")
                     
                     # 상태 설정
                     prediction_state['latest_predictions'] = compatible_predictions
@@ -5733,7 +5868,7 @@ def background_prediction_simple_compatible(file_path, current_date, save_to_csv
 
 
 def safe_serialize_value(value):
-    """값을 JSON 안전하게 직렬화 (배열 타입 처리 개선)"""
+    """값을 JSON 안전하게 직렬화 (NaN/Infinity 처리 강화)"""
     if value is None:
         return None
     
@@ -5751,37 +5886,64 @@ def safe_serialize_value(value):
             except:
                 return [str(item) for item in value]
     
-    # 스칼라 값에 대해서만 pd.isna 체크
+    # 🔧 강화된 NaN/Infinity 처리
     try:
-        if pd.isna(value):  # 스칼라 값에 대해서만 사용
+        # pandas isna 체크 (가장 포괄적)
+        if pd.isna(value):
             return None
     except (TypeError, ValueError):
-        # pd.isna가 처리할 수 없는 타입인 경우 넘어감
         pass
     
-    if isinstance(value, (int, float)):
-        if np.isnan(value) or np.isinf(value):
+    # 🔧 NumPy NaN/Infinity 체크
+    try:
+        if isinstance(value, (int, float, np.number)):
+            if np.isnan(value) or np.isinf(value):
+                return None
+            # 정상 숫자값인 경우
+            if isinstance(value, (np.floating, float)):
+                return float(value)
+            elif isinstance(value, (np.integer, int)):
+                return int(value)
+    except (TypeError, ValueError, OverflowError):
+        pass
+    
+    # 🔧 문자열 체크 (NaN이 문자열로 변환된 경우)
+    if isinstance(value, str):
+        value_lower = value.lower().strip()
+        if value_lower in ['nan', 'inf', '-inf', 'infinity', '-infinity', 'null', 'none']:
             return None
-        return float(value)
-    elif isinstance(value, np.floating):  # numpy float 타입 처리
-        if np.isnan(value) or np.isinf(value):
-            return None
-        return float(value)
-    elif isinstance(value, np.integer):  # numpy int 타입 처리
-        return int(value)
-    elif isinstance(value, str):
         return value
-    elif hasattr(value, 'isoformat'):  # datetime/Timestamp
-        return value.strftime('%Y-%m-%d')
-    elif hasattr(value, 'strftime'):  # 기타 날짜 객체
-        return value.strftime('%Y-%m-%d')
-    else:
+    
+    # 날짜 객체 처리
+    if hasattr(value, 'isoformat'):  # datetime/Timestamp
         try:
-            # JSON 직렬화 테스트
-            json.dumps(value)
-            return value
-        except (TypeError, ValueError):
+            return value.strftime('%Y-%m-%d')
+        except:
             return str(value)
+    elif hasattr(value, 'strftime'):  # 기타 날짜 객체
+        try:
+            return value.strftime('%Y-%m-%d')
+        except:
+            return str(value)
+    
+    # 🔧 최종 JSON 직렬화 테스트 (더 안전하게)
+    try:
+        # JSON 직렬화 가능한지 확인
+        json_str = json.dumps(value)
+        # 직렬화된 문자열에 NaN이 포함되어 있는지 확인
+        if 'NaN' in json_str or 'Infinity' in json_str:
+            return None
+        return value
+    except (TypeError, ValueError, OverflowError):
+        # 직렬화 실패 시 문자열로
+        try:
+            str_value = str(value)
+            # 문자열에도 NaN이 포함된 경우 처리
+            if any(nan_str in str_value.lower() for nan_str in ['nan', 'inf', 'infinity']):
+                return None
+            return str_value
+        except:
+            return None
 
 def clean_predictions_data(predictions):
     """예측 데이터를 JSON 안전하게 정리"""
@@ -5936,7 +6098,9 @@ def convert_to_legacy_format(predictions_data):
         return []
     
     legacy_out = []
-    for pred in predictions_data:
+    actual_values_found = 0  # 실제값이 발견된 수 카운트
+    
+    for i, pred in enumerate(predictions_data):
         try:
             # 날짜 필드 안전 처리
             date_value = pred.get("date") or pred.get("Date")
@@ -5951,12 +6115,25 @@ def convert_to_legacy_format(predictions_data):
             prediction_value = pred.get("prediction") or pred.get("Prediction")
             prediction_safe = safe_serialize_value(prediction_value)
             
-            # 실제값 안전 처리
-            actual_value = pred.get("actual") or pred.get("Actual")
-            actual_safe = safe_serialize_value(actual_value)
+            # 실제값 안전 처리 - 다양한 필드명 확인
+            actual_value = (pred.get("actual") or 
+                          pred.get("Actual") or 
+                          pred.get("actual_value") or 
+                          pred.get("Actual_Value"))
+            
+            # 실제값이 있는지 확인
+            if actual_value is not None and actual_value != 'None' and not (
+                isinstance(actual_value, float) and (np.isnan(actual_value) or np.isinf(actual_value))
+            ):
+                actual_safe = safe_serialize_value(actual_value)
+                actual_values_found += 1
+                if i < 5:  # 처음 5개만 로깅
+                    logger.debug(f"  📊 [LEGACY_FORMAT] Found actual value for {date_str}: {actual_safe}")
+            else:
+                actual_safe = None
             
             # 기타 필드들 안전 처리
-            prediction_from = pred.get("prediction_from")
+            prediction_from = pred.get("prediction_from") or pred.get("Prediction_From")
             if hasattr(prediction_from, 'strftime'):
                 prediction_from = prediction_from.strftime('%Y-%m-%d')
             elif prediction_from:
@@ -5989,8 +6166,12 @@ def convert_to_legacy_format(predictions_data):
             legacy_out.append(legacy_item)
             
         except Exception as e:
-            logger.warning(f"Error converting prediction item: {str(e)}")
+            logger.warning(f"Error converting prediction item {i}: {str(e)}")
             continue
+    
+    # 실제값 통계 로깅
+    total_predictions = len(legacy_out)
+    logger.info(f"  📊 [LEGACY_FORMAT] Converted {total_predictions} predictions, {actual_values_found} with actual values")
     
     return legacy_out
 
@@ -6637,17 +6818,28 @@ def get_prediction_results_compatible():
         # 어텐션 데이터 정리
         attention_data = prediction_state['latest_attention_data']
         cleaned_attention = None
+        
+        logger.info(f"📊 [ATTENTION] Processing attention data: available={bool(attention_data)}")
         if attention_data:
+            logger.info(f"📊 [ATTENTION] Original keys: {list(attention_data.keys())}")
+            
             cleaned_attention = {}
             for key, value in attention_data.items():
                 if key == 'image' and value:
                     cleaned_attention[key] = value  # base64 이미지는 그대로
+                    logger.info(f"📊 [ATTENTION] Image data preserved (length: {len(value) if isinstance(value, str) else 'N/A'})")
                 elif isinstance(value, dict):
                     cleaned_attention[key] = {}
                     for k, v in value.items():
                         cleaned_attention[key][k] = safe_serialize_value(v)
+                    logger.info(f"📊 [ATTENTION] Dict processed for key '{key}': {len(cleaned_attention[key])} items")
                 else:
                     cleaned_attention[key] = safe_serialize_value(value)
+                    logger.info(f"📊 [ATTENTION] Value processed for key '{key}': {type(value)}")
+            
+            logger.info(f"📊 [ATTENTION] Final cleaned keys: {list(cleaned_attention.keys())}")
+        else:
+            logger.warning(f"📊 [ATTENTION] No attention data available in prediction_state")
         
         # 플롯 데이터 정리
         plots = prediction_state['latest_plots'] or {}
@@ -6678,16 +6870,47 @@ def get_prediction_results_compatible():
             'next_semimonthly_period': safe_serialize_value(prediction_state['next_semimonthly_period'])
         }
         
-        # JSON 직렬화 테스트
+        # 🔧 강화된 JSON 직렬화 테스트
         try:
             test_json = json.dumps(response_data)
+            # 직렬화된 JSON에 NaN이 포함되어 있는지 추가 확인
+            if 'NaN' in test_json or 'Infinity' in test_json:
+                logger.error(f"JSON contains NaN/Infinity values")
+                # NaN 값들을 모두 null로 교체
+                test_json_cleaned = test_json.replace('NaN', 'null').replace('Infinity', 'null').replace('-Infinity', 'null')
+                response_data = json.loads(test_json_cleaned)
             logger.info(f"JSON serialization test: SUCCESS (length: {len(test_json)})")
         except Exception as json_error:
             logger.error(f"JSON serialization test: FAILED - {str(json_error)}")
-            return jsonify({
-                'success': False,
-                'error': f'Data serialization error: {str(json_error)}'
-            }), 500
+            logger.error(f"Error details: {traceback.format_exc()}")
+            
+            # 응급 처치: 모든 숫자 필드를 문자열로 변환 시도
+            try:
+                logger.info("Attempting emergency data cleaning...")
+                cleaned_predictions = []
+                for pred in compatible_predictions:
+                    cleaned_pred = {}
+                    for k, v in pred.items():
+                        if isinstance(v, (int, float)):
+                            if pd.isna(v) or np.isnan(v) or np.isinf(v):
+                                cleaned_pred[k] = None
+                            else:
+                                cleaned_pred[k] = float(v)
+                        else:
+                            cleaned_pred[k] = safe_serialize_value(v)
+                    cleaned_predictions.append(cleaned_pred)
+                
+                response_data['predictions'] = cleaned_predictions
+                
+                # 재시도
+                test_json = json.dumps(response_data)
+                logger.info("Emergency cleaning successful")
+            except Exception as emergency_error:
+                logger.error(f"Emergency cleaning failed: {str(emergency_error)}")
+                return jsonify({
+                    'success': False,
+                    'error': f'Data serialization error: {str(json_error)}'
+                }), 500
         
         logger.info(f"=== Compatible Response Summary ===")
         logger.info(f"Total predictions: {len(compatible_predictions)}")
@@ -6826,31 +7049,138 @@ def get_moving_averages():
     """이동평균 조회 API"""
     global prediction_state
     
-    if prediction_state['latest_ma_results'] is None:
-        logger.warning("No moving average results available")
-        return jsonify({'error': 'No moving average results available'}), 404
-    
-    logger.info(f"Returning MA results with {len(prediction_state['latest_ma_results'])} windows")
-    
-    return jsonify({
-        'success': True,
-        'current_date': prediction_state['current_date'],
-        'ma_results': prediction_state['latest_ma_results']
-    })
+    try:
+        if prediction_state['latest_ma_results'] is None:
+            logger.warning("No moving average results available")
+            return jsonify({'error': 'No moving average results available'}), 404
+        
+        # MA 결과 정리
+        cleaned_ma_results = {}
+        for key, value in prediction_state['latest_ma_results'].items():
+            if isinstance(value, list):
+                cleaned_ma_results[key] = []
+                for item in value:
+                    if isinstance(item, dict):
+                        cleaned_item = {}
+                        for k, v in item.items():
+                            cleaned_item[k] = safe_serialize_value(v)
+                        cleaned_ma_results[key].append(cleaned_item)
+                    else:
+                        cleaned_ma_results[key].append(safe_serialize_value(item))
+            else:
+                cleaned_ma_results[key] = safe_serialize_value(value)
+        
+        logger.info(f"Returning MA results with {len(cleaned_ma_results)} windows")
+        
+        return jsonify({
+            'success': True,
+            'current_date': safe_serialize_value(prediction_state['current_date']),
+            'ma_results': cleaned_ma_results
+        })
+        
+    except Exception as e:
+        logger.error(f"Error in get_moving_averages API: {str(e)}")
+        logger.error(traceback.format_exc())
+        return jsonify({
+            'success': False,
+            'error': f'Error retrieving moving averages: {str(e)}'
+        }), 500
 
 @app.route('/api/results/attention-map', methods=['GET'])
 def get_attention_map():
-    """어텐션 맵 조회 API"""
+    """어텐션 맵 조회 API - 개선된 버전"""
     global prediction_state
     
-    if prediction_state['latest_attention_data'] is None:
-        return jsonify({'error': 'No attention map available'}), 404
+    logger.info("🔍 [ATTENTION_API] Attention map API called")
     
+    # 1. 현재 메모리 상태에서 확인
+    if prediction_state['latest_attention_data'] is not None:
+        logger.info("✅ [ATTENTION_API] Found attention data in memory")
+        return jsonify({
+            'success': True,
+            'current_date': prediction_state['current_date'],
+            'attention_data': prediction_state['latest_attention_data']
+        })
+    
+    # 2. 캐시에서 가장 최근 attention 데이터 찾기
+    logger.info("🔍 [ATTENTION_API] No data in memory, searching cache...")
+    
+    try:
+        current_file = prediction_state.get('current_file')
+        if current_file:
+            cache_dirs = get_file_cache_dirs(current_file)
+            predictions_dir = cache_dirs['predictions']
+            logger.info(f"📂 [ATTENTION_API] Searching in: {predictions_dir}")
+            
+            # attention 파일들 찾기
+            attention_files = list(predictions_dir.glob("*_attention.json"))
+            logger.info(f"📊 [ATTENTION_API] Found {len(attention_files)} attention files")
+            
+            if attention_files:
+                # 가장 최근 파일 찾기
+                latest_file = max(attention_files, key=lambda f: f.stat().st_mtime)
+                logger.info(f"📅 [ATTENTION_API] Latest attention file: {latest_file.name}")
+                
+                with open(latest_file, 'r', encoding='utf-8') as f:
+                    attention_data = json.load(f)
+                
+                # 날짜 정보 추출
+                date_match = latest_file.name.replace("prediction_start_", "").replace("_attention.json", "")
+                formatted_date = pd.to_datetime(date_match, format='%Y%m%d').strftime('%Y-%m-%d')
+                
+                response_data = {
+                    'image': attention_data.get('image_base64', ''),
+                    'feature_importance': attention_data.get('feature_importance', {}),
+                    'temporal_importance': attention_data.get('temporal_importance', {})
+                }
+                
+                logger.info(f"✅ [ATTENTION_API] Successfully loaded from cache: {formatted_date}")
+                return jsonify({
+                    'success': True,
+                    'current_date': formatted_date,
+                    'attention_data': response_data
+                })
+            else:
+                logger.warning("⚠️ [ATTENTION_API] No attention files found in cache")
+        else:
+            logger.warning("⚠️ [ATTENTION_API] No current file context")
+            
+            # 백업: 글로벌 캐시에서 찾기
+            global_predictions_dir = Path(PREDICTIONS_DIR)
+            attention_files = list(global_predictions_dir.glob("*_attention.json"))
+            logger.info(f"📂 [ATTENTION_API] Searching global cache: found {len(attention_files)} files")
+            
+            if attention_files:
+                latest_file = max(attention_files, key=lambda f: f.stat().st_mtime)
+                logger.info(f"📅 [ATTENTION_API] Latest global attention file: {latest_file.name}")
+                
+                with open(latest_file, 'r', encoding='utf-8') as f:
+                    attention_data = json.load(f)
+                
+                date_match = latest_file.name.replace("prediction_start_", "").replace("_attention.json", "")
+                formatted_date = pd.to_datetime(date_match, format='%Y%m%d').strftime('%Y-%m-%d')
+                
+                response_data = {
+                    'image': attention_data.get('image_base64', ''),
+                    'feature_importance': attention_data.get('feature_importance', {}),
+                    'temporal_importance': attention_data.get('temporal_importance', {})
+                }
+                
+                logger.info(f"✅ [ATTENTION_API] Successfully loaded from global cache: {formatted_date}")
+                return jsonify({
+                    'success': True,
+                    'current_date': formatted_date,
+                    'attention_data': response_data
+                })
+                
+    except Exception as e:
+        logger.error(f"💥 [ATTENTION_API] Error searching cache: {str(e)}")
+    
+    logger.warning("❌ [ATTENTION_API] No attention map data available anywhere")
     return jsonify({
-        'success': True,
-        'current_date': prediction_state['current_date'],
-        'attention_data': prediction_state['latest_attention_data']
-    })
+        'success': False,
+        'error': 'No attention map available. Please run a prediction first.'
+    }), 404
 
 @app.route('/api/features', methods=['GET'])
 def get_features():
@@ -6979,6 +7309,17 @@ def get_accumulated_results():
     
     logger.info(f"💰 [ACCUMULATED] Purchase reliability calculated: {accumulated_purchase_reliability}")
     
+    # ✅ 상세 디버깅 로깅 추가
+    logger.info(f"🔍 [ACCUMULATED] Purchase reliability debugging:")
+    logger.info(f"   - Type: {type(accumulated_purchase_reliability)}")
+    logger.info(f"   - Value: {accumulated_purchase_reliability}")
+    logger.info(f"   - Repr: {repr(accumulated_purchase_reliability)}")
+    if accumulated_purchase_reliability == 100.0:
+        logger.warning(f"⚠️ [ACCUMULATED] 100% reliability detected! Detailed analysis:")
+        logger.warning(f"   - Total predictions: {len(prediction_state['accumulated_predictions'])}")
+        for i, pred in enumerate(prediction_state['accumulated_predictions'][:3]):  # 처음 3개만
+            logger.warning(f"   - Prediction {i+1}: date={pred.get('date')}, interval_scores_keys={list(pred.get('interval_scores', {}).keys())}")
+    
     # 데이터 안전성 검사
     safe_interval_scores = []
     if prediction_state.get('accumulated_interval_scores'):
@@ -7011,6 +7352,11 @@ def get_accumulated_results():
         'accumulated_purchase_reliability': accumulated_purchase_reliability,
         'cache_statistics': cache_stats  # ✅ 캐시 통계 추가
     }
+    
+    # ✅ 최종 응답 데이터 검증 로깅
+    logger.info(f"📤 [ACCUMULATED] Final response validation:")
+    logger.info(f"   - accumulated_purchase_reliability in response: {response_data['accumulated_purchase_reliability']}")
+    logger.info(f"   - Type in response: {type(response_data['accumulated_purchase_reliability'])}")
     
     logger.info(f"📤 [ACCUMULATED] Response summary: predictions={len(response_data['predictions'])}, metrics_keys={list(response_data['accumulated_metrics'].keys())}, reliability={response_data['accumulated_purchase_reliability']}")
     
@@ -7150,24 +7496,36 @@ def return_prediction_result(pred, date, match_type):
             except Exception as e:
                 logger.warning(f"⚠️ [API] Error loading attention data for {date}: {str(e)}")
         
+        # 기본 응답 데이터 구성
         response_data = {
             'success': True,
             'date': date,
             'predictions': predictions,
             'interval_scores': interval_scores,
             'metrics': metrics,
-            'ma_results': ma_results,  # 🔑 이동평균 데이터 추가
-            'attention_data': attention_data,  # 🔑 Attention 데이터 추가
+            'ma_results': ma_results,
+            'attention_data': attention_data,
             'next_semimonthly_period': pred.get('next_semimonthly_period'),
             'actual_business_days': pred.get('actual_business_days'),
             'match_type': match_type,
-            'data_end_date': pred.get('date'),  # 데이터 기준일 추가
-            'prediction_start_date': pred.get('prediction_start_date')  # 예측 시작일 추가
+            'data_end_date': pred.get('date'),
+            'prediction_start_date': pred.get('prediction_start_date')
         }
         
-        logger.info(f"✅ [API] Successfully prepared response for {date}: predictions={len(predictions)}, interval_scores={len(interval_scores)}, ma_windows={len(ma_results)}, attention_data={bool(attention_data)}")
+        # 각 필드를 개별적으로 안전하게 직렬화
+        safe_response = {}
+        for key, value in response_data.items():
+            safe_value = safe_serialize_value(value)
+            if safe_value is not None:  # None이 아닌 경우에만 추가
+                safe_response[key] = safe_value
         
-        return jsonify(response_data)
+        # success와 date는 항상 포함
+        safe_response['success'] = True
+        safe_response['date'] = date
+        
+        logger.info(f"✅ [API] Successfully prepared response for {date}: predictions={len(safe_response.get('predictions', []))}, interval_scores={len(safe_response.get('interval_scores', []))}, ma_windows={len(safe_response.get('ma_results', {}))}, attention_data={bool(safe_response.get('attention_data'))}")
+        
+        return jsonify(safe_response)
         
     except Exception as e:
         logger.error(f"💥 [API] Error in return_prediction_result for {date}: {str(e)}")
