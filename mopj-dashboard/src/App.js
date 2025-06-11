@@ -1343,10 +1343,12 @@ const App = () => {
       margin: '0 auto'
     },
     welcomeTitle: {
-      fontSize: '2.5rem',
+      fontSize: windowWidth < 768 ? '1.8rem' : '2.5rem',
       fontWeight: '700',
       marginBottom: '1rem',
-      lineHeight: '1.2'
+      lineHeight: '1.2',
+      whiteSpace: windowWidth < 768 ? 'normal' : 'nowrap',
+      textAlign: 'center'
     },
     welcomeSubtitle: {
       fontSize: '1.25rem',
