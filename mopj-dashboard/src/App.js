@@ -104,7 +104,35 @@ const formatDate = (dateString) => {
   });
 };
 
-// 예측 가능한 시작일 목록 생성 (실제 예측 시작일 기준)
+// 반월 기간의 시작일인지 확인하는 함수
+const isSemimonthlyStart = (dateString) => {
+  const date = new Date(dateString + 'T00:00:00');
+  const day = date.getDate();
+  // 1일 또는 16일이면 반월 시작
+  return day === 1 || day === 16;
+};
+
+// 다음 반월 시작일을 찾는 함수
+const getNextSemimonthlyStart = (dateString) => {
+  const [year, month, day] = dateString.split('-').map(Number);
+  const date = new Date(year, month - 1, day);
+  
+  if (day <= 16) {
+    // 16일로 이동
+    date.setDate(16);
+  } else {
+    // 다음 달 1일로 이동
+    date.setMonth(date.getMonth() + 1);
+    date.setDate(1);
+  }
+  
+  const year2 = date.getFullYear();
+  const month2 = String(date.getMonth() + 1).padStart(2, '0');
+  const day2 = String(date.getDate()).padStart(2, '0');
+  return `${year2}-${month2}-${day2}`;
+};
+
+// 예측 가능한 시작일 목록 생성 (데이터의 50% 지점부터, 반월 기준 우선)
 const generatePredictableStartDates = (dataDatesList, holidays = []) => {
   if (!Array.isArray(dataDatesList) || dataDatesList.length === 0) {
     return [];
@@ -114,57 +142,87 @@ const generatePredictableStartDates = (dataDatesList, holidays = []) => {
   console.log(`🔍 [DATE_GENERATION] Sample data dates:`, dataDatesList.slice(0, 5));
   console.log(`🔍 [DATE_GENERATION] Sample holidays:`, holidays.slice(0, 5).map(h => h.date || h));
   
-  // 🎯 올바른 로직: 데이터 날짜의 다음 영업일을 예측 시작일로 표시
-  // 예: 5월 20일 데이터가 있으면 → 달력에 5월 21일이 표시됨 (실제 예측 시작일)
-  // 사용자가 5월 21일을 클릭하면 → 5월 20일까지 데이터를 사용해서 5월 21일부터 예측
+  console.log(`📊 [DATA_INFO] Total dates from backend: ${dataDatesList.length}`);
+  console.log(`📊 [DATA_INFO] Backend already filtered 50%+ data: ${dataDatesList[0]} ~ ${dataDatesList[dataDatesList.length - 1]}`);
+  
+  // 🎯 백엔드에서 이미 50% 필터링된 데이터를 받았으므로 모든 날짜를 예측 가능으로 처리
   const validStartDates = [];
   
   dataDatesList.forEach((dataDate, index) => {
-    // 🎯 핵심: 해당 데이터가 있으면 그 다음 영업일을 예측 시작일로 표시
+    // 해당 데이터가 있으면 그 다음 영업일을 예측 시작일로 표시
     const nextBusinessDay = getNextBusinessDay(dataDate, holidays);
     
-    // getNextBusinessDay 함수가 이미 휴일과 주말을 건너뛰므로 추가 체크 불필요
     validStartDates.push({
       startDate: nextBusinessDay,
       requiredDataDate: dataDate, // 예측에 필요한 데이터 마지막 날짜
       label: formatDate(nextBusinessDay),
-      isHoliday: isHoliday(nextBusinessDay, holidays)
+      isHoliday: isHoliday(nextBusinessDay, holidays),
+      isSemimonthlyStart: isSemimonthlyStart(nextBusinessDay), // 반월 시작 여부
+      dataIndex: index // 전체 데이터에서의 인덱스
     });
     
-    console.log(`✅ [DATE_GENERATION] Added: ${nextBusinessDay} (uses data until: ${dataDate}, holiday: ${isHoliday(nextBusinessDay, holidays)})`);
+    console.log(`✅ [DATE_GENERATION] Added: ${nextBusinessDay} (uses data until: ${dataDate}, index: ${index}, semimonthly: ${isSemimonthlyStart(nextBusinessDay)})`);
   });
   
-  // 중복 제거 (같은 예측 시작일이 있으면 가장 최근 데이터를 사용하는 것 선택)
+  // 중복 제거 및 반월 시작일 우선 처리
   const uniqueStartDates = [];
-  const seenStartDates = new Map(); // startDate -> { requiredDataDate, index }
+  const seenStartDates = new Map(); // startDate -> { requiredDataDate, index, isSemimonthlyStart }
   
-  // 데이터 날짜 순서를 유지하면서 중복 제거
+  // 데이터 날짜 순서를 유지하면서 중복 제거 (반월 시작일 우선)
   validStartDates.forEach((item, index) => {
     if (!seenStartDates.has(item.startDate)) {
       // 첫 번째로 나온 경우 추가
-      seenStartDates.set(item.startDate, { requiredDataDate: item.requiredDataDate, index });
+      seenStartDates.set(item.startDate, { 
+        requiredDataDate: item.requiredDataDate, 
+        index,
+        isSemimonthlyStart: item.isSemimonthlyStart 
+      });
       uniqueStartDates.push(item);
-      console.log(`📋 [DATE_FILTER] First occurrence: ${item.startDate} (uses data until: ${item.requiredDataDate})`);
+      console.log(`📋 [DATE_FILTER] First occurrence: ${item.startDate} (uses data until: ${item.requiredDataDate}, semimonthly: ${item.isSemimonthlyStart})`);
     } else {
-      // 같은 예측 시작일이 있다면 더 최근 데이터를 사용하는 것으로 교체
+      // 같은 예측 시작일이 있다면 처리 우선순위: 1) 반월 시작일 2) 더 최근 데이터
       const existing = seenStartDates.get(item.startDate);
-      if (item.requiredDataDate > existing.requiredDataDate) {
-        // 기존 항목을 새 항목으로 교체
+      let shouldReplace = false;
+      
+      if (!existing.isSemimonthlyStart && item.isSemimonthlyStart) {
+        // 기존이 반월 시작일이 아니고 새 항목이 반월 시작일이면 교체
+        shouldReplace = true;
+        console.log(`🎯 [DATE_FILTER] Replacing with semimonthly start: ${item.startDate}`);
+      } else if (existing.isSemimonthlyStart === item.isSemimonthlyStart && item.requiredDataDate > existing.requiredDataDate) {
+        // 둘 다 반월 시작일이거나 둘 다 아닌 경우, 더 최근 데이터 우선
+        shouldReplace = true;
+        console.log(`🔄 [DATE_FILTER] Replacing with more recent data: ${item.startDate}`);
+      }
+      
+      if (shouldReplace) {
         const existingIndex = uniqueStartDates.findIndex(existing => existing.startDate === item.startDate);
         if (existingIndex !== -1) {
           uniqueStartDates[existingIndex] = item;
-          seenStartDates.set(item.startDate, { requiredDataDate: item.requiredDataDate, index });
-          console.log(`🔄 [DATE_FILTER] Updated: ${item.startDate} (now uses more recent data until: ${item.requiredDataDate})`);
+          seenStartDates.set(item.startDate, { 
+            requiredDataDate: item.requiredDataDate, 
+            index,
+            isSemimonthlyStart: item.isSemimonthlyStart 
+          });
         }
       } else {
-        console.log(`⚠️ [DATE_FILTER] Skipped duplicate: ${item.startDate} (existing has more recent data: ${existing.requiredDataDate})`);
+        console.log(`⚠️ [DATE_FILTER] Skipped: ${item.startDate} (existing has priority)`);
       }
     }
   });
   
-  console.log(`📋 [DATE_GENERATION] Generated ${uniqueStartDates.length} unique start dates from ${dataDatesList.length} data dates`);
-  console.log(`📋 [DATE_GENERATION] First 5 start dates:`, uniqueStartDates.slice(0, 5).map(item => `${item.startDate} (uses data until ${item.requiredDataDate})`));
-  console.log(`📋 [DATE_GENERATION] Last 5 start dates:`, uniqueStartDates.slice(-5).map(item => `${item.startDate} (uses data until ${item.requiredDataDate})`));
+  // 반월 시작일을 앞쪽으로 정렬 (우선 표시)
+  uniqueStartDates.sort((a, b) => {
+    // 날짜 순서는 유지하되, 같은 날짜라면 반월 시작일이 우선
+    if (a.startDate === b.startDate) {
+      return b.isSemimonthlyStart - a.isSemimonthlyStart;
+    }
+    return a.startDate.localeCompare(b.startDate);
+  });
+  
+  console.log(`📋 [DATE_GENERATION] Generated ${uniqueStartDates.length} unique start dates from ${dataDatesList.length} prediction-eligible dates`);
+  console.log(`📋 [DATE_GENERATION] Semimonthly starts: ${uniqueStartDates.filter(d => d.isSemimonthlyStart).length}`);
+  console.log(`📋 [DATE_GENERATION] First 5 start dates:`, uniqueStartDates.slice(0, 5).map(item => `${item.startDate} (uses data until ${item.requiredDataDate}, semimonthly: ${item.isSemimonthlyStart})`));
+  console.log(`📋 [DATE_GENERATION] Last 5 start dates:`, uniqueStartDates.slice(-5).map(item => `${item.startDate} (uses data until ${item.requiredDataDate}, semimonthly: ${item.isSemimonthlyStart})`));
   
   return uniqueStartDates;
 };
@@ -2410,7 +2468,7 @@ const App = () => {
         © 2025 MOPJ 예측 시스템 | 예측 시작일: {currentDate || '데이터 없음'}
       </footer>
     </div>
-  );
-};
-
-export default App;
+      );
+  };
+  
+  export default App;
