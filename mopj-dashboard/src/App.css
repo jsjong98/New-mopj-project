@@ -36,3 +36,56 @@
     transform: rotate(360deg);
   }
 }
+
+/* 휴일 관리 관련 스타일 */
+.holiday-manager {
+  margin: 20px 0;
+}
+
+.holiday-list {
+  max-height: 400px;
+  overflow-y: auto;
+  border: 1px solid #e0e0e0;
+  border-radius: 8px;
+  padding: 12px;
+  background-color: #f9f9f9;
+}
+
+.holiday-item {
+  padding: 12px;
+  margin-bottom: 8px;
+  background-color: white;
+  border: 1px solid #e0e0e0;
+  border-radius: 6px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.holiday-item:last-child {
+  margin-bottom: 0;
+}
+
+.holiday-date {
+  font-weight: bold;
+  color: #2563eb;
+  font-size: 14px;
+}
+
+.holiday-description {
+  color: #4b5563;
+  font-size: 13px;
+  margin-top: 4px;
+}
+
+.holiday-source {
+  color: #9ca3af;
+  font-size: 12px;
+  margin-top: 4px;
+  font-style: italic;
+}
+
+.no-data-message {
+  text-align: center;
+  color: #6b7280;
+  font-style: italic;
+  padding: 20px;
+}
